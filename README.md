@@ -4,7 +4,8 @@ An unstyled, **runes-first drawer / bottom-sheet for Svelte 5** — drag-to-dism
 points, nested drawers, and an accessible dialog core. **Zero runtime dependencies.**
 
 A ground-up Svelte 5 re-imagining of [vaul](https://github.com/emilkowalski/vaul) and
-[vaul-svelte](https://github.com/huntabyte/vaul-svelte) (see [Credits](#credits)).
+[vaul-svelte](https://github.com/huntabyte/vaul-svelte) (see [Credits](#credits)). See
+the advantages over both in the [What svaul adds](#what-svaul-adds) section below.
 
 ```sh
 npm i @harshmandan/svaul
@@ -39,24 +40,6 @@ Every part of the drawer is customizable via **named snippets** in the `<Drawer>
 `header`, `footer`, and the default `children` (the scrollable body). Supply only the parts
 you want to own; each renders a sensible default otherwise. Body snippets receive
 `{ open, close, setOpen, closeAll, cycleSnapPoint }` controls.
-
-## Headless
-
-For total control over the markup, import the reactive `Drawer` class and spread its
-attribute bags onto your own elements:
-
-```svelte
-<script lang="ts">
-  import { Drawer } from "@harshmandan/svaul/headless";
-  const drawer = new Drawer({ snapPoints: () => [0.5, 1] });
-</script>
-
-<button {...drawer.trigger}>Open</button>
-{#if drawer.present}
-  <div {...drawer.overlay}></div>
-  <div {...drawer.content}> … </div>
-{/if}
-```
 
 ## Key props
 
@@ -93,6 +76,20 @@ without `!important`. With Tailwind v4, declare the layer order once:
 > **`scaleBackground` note:** wrap your page in `<div data-drawer-wrapper>` and give it an
 > opaque background. The gap behind the lifted page is painted via `setBackgroundColorOnScale`
 > (default black) — if the wrapper is transparent the whole page looks black.
+
+## Why svaul?
+
+- **Svelte 5 runes-native** — built on `$state`/`$derived`/`$effect`, `{@attach}` attachments
+  and snippets, not stores or `$:` side-effect chains.
+- **Zero runtime dependencies** — the portal, focus-trap, scroll-lock, dismiss/Escape, `inert`
+  background and ARIA are all hand-rolled. (vaul-svelte ships `bits-ui`; vaul is React-only.)
+- **Svelte Native API** — a single `<Drawer>` with named snippets *and* a headless `Drawer` class,
+  instead of compound `Drawer.Root/Content/…` parts.
+- **Bug fixes** Fixes bugs with both vaul and svelte-vaul: ref-counted scroll-lock & background-color
+  restore that **always** reverts, **topmost-only** outside-click for nested drawers, the
+  on-screen-keyboard "drawer shoots off-screen" fix, **pixel-snapped** snap offsets (no blurry
+  text), a dismiss-**blink** fix, `prefers-reduced-motion` honored on the scaled background, and
+  `modal` actually wired through. And more.
 
 ## Credits
 
