@@ -1,0 +1,340 @@
+/**
+ * svaul styles.
+ *
+ * Bundled automatically by the <Drawer> component. Headless users:
+ *   import "svaul/styles.css";
+ *
+ * Everything lives in the `svaul` cascade layer, so your own styles — plain
+ * unlayered CSS, or Tailwind utilities — always win without `!important`.
+ * Tailwind v4 users: declare the layer order once so utilities beat our defaults:
+ *   @layer svaul;
+ *   @import "tailwindcss";
+ */
+
+@layer svaul {
+
+/* ----------------------------------------------------------------- content */
+/* Load-bearing structure stays at element specificity. */
+[data-drawer] {
+	position: fixed;
+	/* Per-level z-index so a nested drawer (and its overlay) sits above its parent. */
+	z-index: calc(var(--drawer-z-index, 1000) + var(--drawer-depth, 0) * 10);
+	animation-duration: 0.5s;
+	animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Promote a compositor layer only while actually dragging (avoids a permanent layer
+   + blurry text on low-end devices). DRAG_CLASS is toggled during the gesture. */
+[data-drawer].drawer-dragging {
+	will-change: transform;
+}
+
+/* Overridable defaults (zero specificity — any user class / Tailwind utility wins). */
+:where([data-drawer]) {
+	touch-action: none;
+	transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+	background: var(--drawer-bg, #ffffff);
+	color: var(--drawer-color, inherit);
+}
+
+/* A visible focus ring for keyboard users (overridable / removable via your own class). */
+:where([data-drawer]:focus-visible) {
+	outline: 2px solid var(--drawer-focus-ring, #3b82f6);
+	outline-offset: 2px;
+}
+
+/*
+ * Positioning + sizing defaults are wrapped in :where() so they have ZERO
+ * specificity — a single user class (e.g. Tailwind `bg-gray-100`, `h-full`,
+ * `max-h-[96%]`, `rounded-t-[10px]`) overrides them without `!important`.
+ */
+:where([data-drawer][data-drawer-direction="bottom"]) {
+	inset: auto 0 0 0;
+	margin-top: 6rem;
+	/* dvh tracks the *dynamic* viewport so the drawer isn't clipped under mobile URL bars. */
+	max-height: var(--drawer-max-size, 96dvh);
+	border-top-left-radius: var(--drawer-radius, 0.75rem);
+	border-top-right-radius: var(--drawer-radius, 0.75rem);
+}
+:where([data-drawer][data-drawer-direction="top"]) {
+	inset: 0 0 auto 0;
+	margin-bottom: 6rem;
+	max-height: var(--drawer-max-size, 96dvh);
+	border-bottom-left-radius: var(--drawer-radius, 0.75rem);
+	border-bottom-right-radius: var(--drawer-radius, 0.75rem);
+}
+:where([data-drawer][data-drawer-direction="left"]) {
+	inset: 0 auto 0 0;
+	margin-right: 6rem;
+	max-width: var(--drawer-max-size, 96vw);
+	border-top-right-radius: var(--drawer-radius, 0.75rem);
+	border-bottom-right-radius: var(--drawer-radius, 0.75rem);
+}
+:where([data-drawer][data-drawer-direction="right"]) {
+	inset: 0 0 0 auto;
+	margin-left: 6rem;
+	max-width: var(--drawer-max-size, 96vw);
+	border-top-left-radius: var(--drawer-radius, 0.75rem);
+	border-bottom-left-radius: var(--drawer-radius, 0.75rem);
+}
+
+/* ----------------------------------------------------- enter / exit (no snap) */
+[data-drawer][data-drawer-snap-points="false"][data-drawer-direction="bottom"][data-state="open"] {
+	animation-name: drawer-slide-from-bottom;
+}
+[data-drawer][data-drawer-snap-points="false"][data-drawer-direction="bottom"][data-state="closed"] {
+	animation-name: drawer-slide-to-bottom;
+}
+[data-drawer][data-drawer-snap-points="false"][data-drawer-direction="top"][data-state="open"] {
+	animation-name: drawer-slide-from-top;
+}
+[data-drawer][data-drawer-snap-points="false"][data-drawer-direction="top"][data-state="closed"] {
+	animation-name: drawer-slide-to-top;
+}
+[data-drawer][data-drawer-snap-points="false"][data-drawer-direction="left"][data-state="open"] {
+	animation-name: drawer-slide-from-left;
+}
+[data-drawer][data-drawer-snap-points="false"][data-drawer-direction="left"][data-state="closed"] {
+	animation-name: drawer-slide-to-left;
+}
+[data-drawer][data-drawer-snap-points="false"][data-drawer-direction="right"][data-state="open"] {
+	animation-name: drawer-slide-from-right;
+}
+[data-drawer][data-drawer-snap-points="false"][data-drawer-direction="right"][data-state="closed"] {
+	animation-name: drawer-slide-to-right;
+}
+
+/*
+ * Hold the exit animation's end frame so the drawer doesn't snap back to its open
+ * resting position for one frame before it unmounts (the dismiss "blink"). Applied
+ * only to the closed state — using it on enter would pin the open transform and
+ * override the inline transforms used while dragging.
+ */
+[data-drawer][data-state="closed"],
+[data-drawer-overlay][data-state="closed"] {
+	animation-fill-mode: forwards;
+}
+
+/* snap-point drawers rest at a CSS-var offset instead of animating in */
+[data-drawer][data-drawer-snap-points="true"][data-drawer-direction="bottom"] {
+	transform: translate3d(0, var(--drawer-initial-transform, 100%), 0);
+}
+[data-drawer][data-drawer-snap-points="true"][data-drawer-direction="top"] {
+	transform: translate3d(0, calc(var(--drawer-initial-transform, 100%) * -1), 0);
+}
+[data-drawer][data-drawer-snap-points="true"][data-drawer-direction="left"] {
+	transform: translate3d(calc(var(--drawer-initial-transform, 100%) * -1), 0, 0);
+}
+[data-drawer][data-drawer-snap-points="true"][data-drawer-direction="right"] {
+	transform: translate3d(var(--drawer-initial-transform, 100%), 0, 0);
+}
+
+[data-drawer-animate="false"] {
+	animation: none !important;
+}
+
+/* Disable all motion (overrides inline JS transitions too). */
+[data-drawer][data-drawer-no-animate],
+[data-drawer-overlay][data-drawer-no-animate] {
+	transition: none !important;
+	animation: none !important;
+}
+
+/* ------------------------------------------- over-drag background extension */
+[data-drawer]::after {
+	content: "";
+	position: absolute;
+	background: inherit;
+	background-color: inherit;
+}
+[data-drawer][data-drawer-direction="top"]::after {
+	top: initial;
+	bottom: 100%;
+	left: 0;
+	right: 0;
+	height: 200%;
+}
+[data-drawer][data-drawer-direction="bottom"]::after {
+	top: 100%;
+	bottom: initial;
+	left: 0;
+	right: 0;
+	height: 200%;
+}
+[data-drawer][data-drawer-direction="left"]::after {
+	left: initial;
+	right: 100%;
+	top: 0;
+	bottom: 0;
+	width: 200%;
+}
+[data-drawer][data-drawer-direction="right"]::after {
+	left: 100%;
+	right: initial;
+	top: 0;
+	bottom: 0;
+	width: 200%;
+}
+
+/* ----------------------------------------------------------------- overlay */
+[data-drawer-overlay] {
+	position: fixed;
+	inset: 0;
+	z-index: calc(var(--drawer-overlay-z-index, 999) + var(--drawer-depth, 0) * 10);
+	background: var(--drawer-overlay-bg, rgba(0, 0, 0, 0.4));
+	/* Duration here (not only on non-snap) so the snap-drawer fade-out is timed, not instant. */
+	animation-duration: 0.5s;
+	animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+[data-drawer-overlay][data-drawer-snap-points="false"][data-state="open"] {
+	animation-name: drawer-fade-in;
+}
+[data-drawer-overlay][data-state="closed"] {
+	animation-name: drawer-fade-out;
+}
+[data-drawer-overlay][data-drawer-snap-points="true"] {
+	opacity: 0;
+	transition: opacity 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+}
+[data-drawer-overlay][data-drawer-snap-points="true"]:not([data-drawer-snap-points-overlay="true"]):not(
+		[data-state="closed"]
+	) {
+	opacity: 0;
+}
+[data-drawer-overlay][data-drawer-snap-points-overlay="true"] {
+	opacity: 1;
+}
+
+/* ----------------------------------------------------------------- handle */
+[data-drawer-handle] {
+	display: block;
+	position: relative;
+	opacity: 0.7;
+	background: var(--drawer-handle-bg, #e2e2e4);
+	margin-left: auto;
+	margin-right: auto;
+	/* Gap between the drawer's edge and the pill. Tune with `--drawer-handle-gap`. */
+	margin-top: var(--drawer-handle-gap, 1rem);
+	height: 5px;
+	width: 32px;
+	border-radius: 1rem;
+	touch-action: pan-y;
+	cursor: grab;
+}
+/* Position the handle on the drawer's inner (draggable) edge per direction. */
+[data-drawer][data-drawer-direction="top"] [data-drawer-handle] {
+	margin-top: 0;
+	margin-bottom: var(--drawer-handle-gap, 1rem);
+}
+[data-drawer][data-drawer-direction="left"] [data-drawer-handle],
+[data-drawer][data-drawer-direction="right"] [data-drawer-handle] {
+	position: absolute;
+	top: 50%;
+	transform: translateY(-50%);
+	margin: 0;
+	width: 5px;
+	height: 36px;
+	touch-action: pan-x;
+}
+[data-drawer][data-drawer-direction="left"] [data-drawer-handle] {
+	right: 0.5rem;
+}
+[data-drawer][data-drawer-direction="right"] [data-drawer-handle] {
+	left: 0.5rem;
+}
+[data-drawer-handle]:hover,
+[data-drawer-handle]:active {
+	opacity: 1;
+}
+[data-drawer-handle-hitarea] {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	transform: translate(-50%, -50%);
+	width: max(100%, 2.75rem);
+	height: max(100%, 2.75rem);
+	touch-action: inherit;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	[data-drawer] {
+		user-select: none;
+	}
+}
+
+/* ----------------------------------------------------------------- keyframes */
+@keyframes drawer-fade-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+@keyframes drawer-fade-out {
+	to {
+		opacity: 0;
+	}
+}
+@keyframes drawer-slide-from-bottom {
+	from {
+		transform: translate3d(0, var(--drawer-initial-transform, 100%), 0);
+	}
+	to {
+		transform: translate3d(0, 0, 0);
+	}
+}
+@keyframes drawer-slide-to-bottom {
+	to {
+		transform: translate3d(0, var(--drawer-initial-transform, 100%), 0);
+	}
+}
+@keyframes drawer-slide-from-top {
+	from {
+		transform: translate3d(0, calc(var(--drawer-initial-transform, 100%) * -1), 0);
+	}
+	to {
+		transform: translate3d(0, 0, 0);
+	}
+}
+@keyframes drawer-slide-to-top {
+	to {
+		transform: translate3d(0, calc(var(--drawer-initial-transform, 100%) * -1), 0);
+	}
+}
+@keyframes drawer-slide-from-left {
+	from {
+		transform: translate3d(calc(var(--drawer-initial-transform, 100%) * -1), 0, 0);
+	}
+	to {
+		transform: translate3d(0, 0, 0);
+	}
+}
+@keyframes drawer-slide-to-left {
+	to {
+		transform: translate3d(calc(var(--drawer-initial-transform, 100%) * -1), 0, 0);
+	}
+}
+@keyframes drawer-slide-from-right {
+	from {
+		transform: translate3d(var(--drawer-initial-transform, 100%), 0, 0);
+	}
+	to {
+		transform: translate3d(0, 0, 0);
+	}
+}
+@keyframes drawer-slide-to-right {
+	to {
+		transform: translate3d(var(--drawer-initial-transform, 100%), 0, 0);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	[data-drawer],
+	[data-drawer-overlay] {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
+}
+
+} /* @layer svaul */
