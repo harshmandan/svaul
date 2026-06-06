@@ -7,7 +7,7 @@ A ground-up Svelte 5 re-imagining of [vaul](https://github.com/emilkowalski/vaul
 [vaul-svelte](https://github.com/huntabyte/vaul-svelte) (see [Credits](#credits)).
 
 ```sh
-npm i svaul
+npm i @harshmandan/svaul
 ```
 
 > Requires Svelte `^5`.
@@ -16,7 +16,7 @@ npm i svaul
 
 ```svelte
 <script lang="ts">
-  import Drawer from "svaul";
+  import Drawer from "@harshmandan/svaul";
   let open = $state(false);
 </script>
 
@@ -47,7 +47,7 @@ attribute bags onto your own elements:
 
 ```svelte
 <script lang="ts">
-  import { Drawer } from "svaul/headless";
+  import { Drawer } from "@harshmandan/svaul/headless";
   const drawer = new Drawer({ snapPoints: () => [0.5, 1] });
 </script>
 

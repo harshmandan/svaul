@@ -2,7 +2,7 @@
  * svaul styles.
  *
  * Bundled automatically by the <Drawer> component. Headless users:
- *   import "svaul/styles.css";
+ *   import "@harshmandan/svaul/styles.css";
  *
  * Everything lives in the `svaul` cascade layer, so your own styles — plain
  * unlayered CSS, or Tailwind utilities — always win without `!important`.

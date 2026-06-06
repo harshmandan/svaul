@@ -1,7 +1,7 @@
 // Public entry point.
 //
 // Default export is the ergonomic single <Drawer> component. The headless `Drawer`
-// $state class lives at `svaul/headless`.
+// $state class lives at `@harshmandan/svaul/headless`.
 
 export { default, default as Drawer } from "./components/drawer.svelte";
 export type { DrawerControls, DrawerComponentProps } from "./components/drawer.svelte";
