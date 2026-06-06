@@ -1,3 +1,11 @@
 /* Declare the library's layer first so Tailwind utilities (and your own CSS) win. */
 @layer svaul;
 @import "tailwindcss";
+
+/* Tailwind v4 no longer forces a pointer cursor on buttons — restore it. */
+@layer base {
+    button:not(:disabled),
+    [role="button"]:not(:disabled) {
+        cursor: pointer;
+    }
+}
