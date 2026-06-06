@@ -1,0 +1,82 @@
+{
+	"name": "svaul",
+	"version": "0.1.0",
+	"description": "An unstyled, runes-first drawer/bottom-sheet for Svelte 5. A zero-dependency reimagining of vaul / vaul-svelte.",
+	"author": "Harsh Mandan",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/harshmandan/svaul.git"
+	},
+	"bugs": {
+		"url": "https://github.com/harshmandan/svaul/issues"
+	},
+	"homepage": "https://harshmandan.github.io/svaul/",
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build && npm run prepack",
+		"build:site": "vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"prepack": "svelte-kit sync && svelte-package && publint",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"test": "playwright test",
+		"test:e2e": "playwright test"
+	},
+	"files": [
+		"dist",
+		"!dist/**/*.test.*",
+		"!dist/**/*.spec.*"
+	],
+	"sideEffects": [
+		"**/*.css"
+	],
+	"svelte": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"svelte": "./dist/index.js"
+		},
+		"./headless": {
+			"types": "./dist/headless.d.ts",
+			"svelte": "./dist/headless.js"
+		},
+		"./styles.css": "./dist/styles/drawer.css"
+	},
+	"peerDependencies": {
+		"svelte": "^5.0.0"
+	},
+	"devDependencies": {
+		"@playwright/test": "^1.60.0",
+		"@sveltejs/adapter-auto": "^7.0.1",
+		"@sveltejs/adapter-static": "^3.0.10",
+		"@sveltejs/kit": "^2.57.0",
+		"@sveltejs/package": "^2.5.7",
+		"@sveltejs/vite-plugin-svelte": "^7.0.0",
+		"@tailwindcss/vite": "^4.3.0",
+		"@types/node": "^25.9.1",
+		"publint": "^0.3.18",
+		"svelte": "^5.55.2",
+		"svelte-check": "^4.4.6",
+		"tailwindcss": "^4.3.0",
+		"typescript": "^6.0.2",
+		"vite": "^8.0.7"
+	},
+	"keywords": [
+		"svelte",
+		"svelte5",
+		"drawer",
+		"bottom-sheet",
+		"sheet",
+		"dialog",
+		"vaul",
+		"runes",
+		"gesture"
+	]
+}

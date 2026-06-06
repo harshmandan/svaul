@@ -1,0 +1,3 @@
+/* Declare the library's layer first so Tailwind utilities (and your own CSS) win. */
+@layer svaul;
+@import "tailwindcss";
