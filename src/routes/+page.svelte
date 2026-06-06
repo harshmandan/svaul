@@ -51,6 +51,13 @@
             with svelte runes and with no dependencies.
         </p>
 
+        <code
+            class="mt-6 rounded-lg bg-gray-100 px-4 select-all py-2 font-mono text-sm text-gray-900"
+        >
+            <span class="text-gray-500 select-none">$&nbsp;</span>npm i
+            @harshmandan/svaul
+        </code>
+
         <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
             <DefaultDrawer class={primaryBtn} label="Open Drawer" />
             <a
@@ -68,12 +75,14 @@
         >
             <p>
                 Inspired by
-                <a class="underline hover:text-gray-600" href="https://vaul.emilkowal.ski"
-                    >vaul</a
+                <a
+                    class="underline hover:text-gray-600"
+                    href="https://vaul.emilkowal.ski">vaul</a
                 >
                 and
-                <a class="underline hover:text-gray-600" href="https://vaul-svelte.com"
-                    >vaul-svelte</a
+                <a
+                    class="underline hover:text-gray-600"
+                    href="https://vaul-svelte.com">vaul-svelte</a
                 >.
             </p>
             <p class="flex items-center gap-1 font-medium text-gray-500">
@@ -85,7 +94,9 @@
     <!-- Examples -->
     <section class="mx-auto max-w-2xl space-y-7 px-6 pb-24 text-left">
         <section>
-            <h2 class="text-sm font-semibold tracking-wide text-gray-500 uppercase">
+            <h2
+                class="text-sm font-semibold tracking-wide text-gray-500 uppercase"
+            >
                 Essentials
             </h2>
             <div class="mt-3 space-y-2">
@@ -97,7 +108,9 @@
         </section>
 
         <section>
-            <h2 class="text-sm font-semibold tracking-wide text-gray-500 uppercase">
+            <h2
+                class="text-sm font-semibold tracking-wide text-gray-500 uppercase"
+            >
                 Gestures &amp; snapping
             </h2>
             <div class="mt-3 space-y-2">
@@ -108,7 +121,9 @@
         </section>
 
         <section>
-            <h2 class="text-sm font-semibold tracking-wide text-gray-500 uppercase">
+            <h2
+                class="text-sm font-semibold tracking-wide text-gray-500 uppercase"
+            >
                 Direction
             </h2>
             <div class="mt-3 space-y-2">
@@ -119,7 +134,9 @@
         </section>
 
         <section>
-            <h2 class="text-sm font-semibold tracking-wide text-gray-500 uppercase">
+            <h2
+                class="text-sm font-semibold tracking-wide text-gray-500 uppercase"
+            >
                 Styling &amp; motion
             </h2>
             <div class="mt-3 space-y-2">
