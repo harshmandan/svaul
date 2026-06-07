@@ -1,4 +1,5 @@
 import { untrack } from "svelte";
+import { SvelteSet } from "svelte/reactivity";
 import { createAttachmentKey } from "svelte/attachments";
 import {
 	ATTR,
@@ -76,6 +77,8 @@ export interface DrawerOptions {
 	scrollLockTimeout?: MaybeGetter<number | undefined>;
 	/** Only the handle initiates a drag (content body scrolls instead). */
 	handleOnly?: MaybeGetter<boolean | undefined>;
+	/** Only start a drag from the primary pointer/button (ignore right/middle click). */
+	onlyPrimaryPointer?: MaybeGetter<boolean | undefined>;
 	/** Move focus into the drawer on open. Default false (mobile-friendly). */
 	autoFocus?: MaybeGetter<boolean | undefined>;
 	/** Don't touch `<body>` styles (skip scroll-lock + background color). */
@@ -107,6 +110,9 @@ export interface DrawerOptions {
 }
 
 const DURATION_MS = TRANSITIONS.DURATION * 1000;
+
+/** Reactive set of currently-open drawers — lets each one compute its card-stack depth. */
+const openDrawers = new SvelteSet<Drawer>();
 
 /**
  * The reactive core of a drawer — the single source of truth shared (via context)
@@ -168,6 +174,9 @@ export class Drawer {
 	#snap: SnapPointsEngine;
 	#parent: Drawer | null;
 	#nestedTimer: ReturnType<typeof setTimeout> | undefined;
+	/** Whether this drawer is currently displaced by a descendant (so we only touch its
+	 *  transform once it has actually receded — never clobber its own open animation). */
+	#wasReceded = false;
 
 	// Stable ref attachments (created once → spread without re-running on every render).
 	#triggerRef = this.#makeRef((el) => (this.triggerEl = el));
@@ -231,6 +240,10 @@ export class Drawer {
 			const inerted: HTMLElement[] = [];
 			for (const child of Array.from(body.children)) {
 				if (child === portalRoot || !(child instanceof HTMLElement)) continue;
+				// Leave explicitly-ignored layers interactive — e.g. a popover/select that
+				// portals its dropdown to <body> alongside (not inside) the drawer.
+				if (child.matches("[data-svaul-ignore]") || child.querySelector("[data-svaul-ignore]"))
+					continue;
 				if (!child.hasAttribute("inert")) {
 					child.setAttribute("inert", "");
 					inerted.push(child);
@@ -262,9 +275,13 @@ export class Drawer {
 			if (!this.modal && typeof document !== "undefined") {
 				const onDown = (event: PointerEvent) => {
 					const content = this.contentEl;
-					const target = event.target as Node | null;
-					if (!content || !target) return;
-					if (content.contains(target) || this.triggerEl?.contains(target)) return;
+					if (!content) return;
+					// composedPath pierces shadow DOM; treat the drawer, its trigger, and any
+					// [data-svaul-ignore] layer (e.g. a portaled popover) as "inside".
+					for (const node of event.composedPath()) {
+						if (node === content || node === this.triggerEl) return;
+						if (node instanceof Element && node.closest("[data-svaul-ignore]")) return;
+					}
 					if (this.dismissible && isTopmost(entry)) this.closeDrawer();
 				};
 				document.addEventListener("pointerdown", onDown, true);
@@ -282,7 +299,7 @@ export class Drawer {
 			const animate = !this.disableAnimation;
 			acquireScale(this.#scaleOpts({ animate }));
 			setScaleBackground(untrack(() => this.#restScaleProgress()), this.#scaleOpts({ animate }));
-			return () => revertScaleBackground(this.noBodyStyles, !this.disableAnimation);
+			return () => revertScaleBackground(this.#scaleOpts({ animate: !this.disableAnimation }), this.noBodyStyles);
 		});
 
 		// Track the active snap point so the backdrop scales with how open the drawer is:
@@ -294,10 +311,21 @@ export class Drawer {
 			setScaleBackground(this.#restScaleProgress(), this.#scaleOpts({ animate: !this.disableAnimation }));
 		});
 
-		// Nested drawers displace their parent for a stacked-card depth effect.
+		// Track this drawer in the open set while open, so ancestors can read their depth.
 		$effect(() => {
-			const open = this.open;
-			if (this.#parent) this.#parent.onNestedOpenChange(open);
+			if (!this.open) return;
+			openDrawers.add(this);
+			return () => openDrawers.delete(this);
+		});
+
+		// Step this drawer back by however many open drawers are stacked above it (compounding).
+		// Skip the initial at-rest state so we never override the drawer's own open animation.
+		$effect(() => {
+			const levels = this.#stackedAbove;
+			if (!this.contentEl) return;
+			if (levels === 0 && !this.#wasReceded) return;
+			this.#wasReceded = levels > 0;
+			this.#applyNestedRecede(levels);
 		});
 
 		// Lift a bottom drawer above the on-screen keyboard (mobile). Ports vaul's
@@ -481,6 +509,17 @@ export class Drawer {
 	get depth(): number {
 		return this.#parent ? this.#parent.depth + 1 : 0;
 	}
+
+	/** How many open drawers are stacked above this one in its chain (0 = none). */
+	get #stackedAbove(): number {
+		let levels = 0;
+		for (const d of openDrawers) {
+			for (let a = d.#parent; a; a = a.#parent) {
+				if (a === this) levels = Math.max(levels, d.depth - this.depth);
+			}
+		}
+		return levels;
+	}
 	get dragSensitivity(): number {
 		return extract(this.#props.dragSensitivity, 1);
 	}
@@ -492,6 +531,9 @@ export class Drawer {
 	}
 	get handleOnly(): boolean {
 		return extract(this.#props.handleOnly, false);
+	}
+	get onlyPrimaryPointer(): boolean {
+		return extract(this.#props.onlyPrimaryPointer, false);
 	}
 	get autoFocus(): boolean {
 		return extract(this.#props.autoFocus, false);
@@ -609,6 +651,8 @@ export class Drawer {
 
 	#scaleOpts(extra: { animate: boolean }): ScaleOptions {
 		return {
+			id: this.contentId,
+			depth: this.depth,
 			direction: this.direction,
 			setBackgroundColorOnScale: this.setBackgroundColorOnScale,
 			noBodyStyles: this.noBodyStyles,
@@ -621,6 +665,8 @@ export class Drawer {
 	/** pointerdown — begin tracking a potential drag. */
 	onPress(event: PointerEvent): void {
 		if (!this.dismissible && !this.hasSnapPoints) return;
+		// Ignore non-primary buttons (right/middle click) when opted in.
+		if (this.onlyPrimaryPointer && event.button !== 0) return;
 		const content = this.contentEl;
 		if (!content) return;
 		if (event.target instanceof Node && !content.contains(event.target)) return;
@@ -922,21 +968,23 @@ export class Drawer {
 			: `scale(${scale}) translate3d(${translate}px, 0, 0)`;
 	}
 
-	/** Called on THIS drawer (the parent) when a child drawer opens/closes. */
-	onNestedOpenChange(childOpen: boolean): void {
+	/** Step this drawer back by `levels` stacked descendants (0 = at rest). Each level
+	 *  compounds, so deeper ancestors recede further than nearer ones. */
+	#applyNestedRecede(levels: number): void {
 		const content = this.contentEl;
 		if (!content) return;
-		const scale = childOpen ? (window.innerWidth - NESTED_DISPLACEMENT) / window.innerWidth : 1;
-		const translate = childOpen ? -NESTED_DISPLACEMENT : 0;
-
 		if (this.#nestedTimer) clearTimeout(this.#nestedTimer);
+
+		const w = window.innerWidth;
+		const scale = levels > 0 ? (w - NESTED_DISPLACEMENT * levels) / w : 1;
+		const translate = levels > 0 ? -NESTED_DISPLACEMENT * levels : 0;
 		set(content, {
 			transition: `transform ${TRANSITIONS.DURATION}s ${TRANSITION_EASE}`,
 			transform: this.#scaleTransform(scale, translate)
 		});
 
-		// After the child fully closes, pin the parent's transform (avoids snap-back).
-		if (!childOpen) {
+		// Back at rest: pin the drawer's own transform so it doesn't fight its snap/drag value.
+		if (levels === 0) {
 			this.#nestedTimer = setTimeout(() => {
 				const t = getTranslate(content, this.direction);
 				set(content, { transition: "none", transform: this.#translate(t ?? 0) });
