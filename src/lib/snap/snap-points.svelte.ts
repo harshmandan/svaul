@@ -21,6 +21,26 @@ const trans = (prop: "transform" | "opacity") =>
 	`${prop} ${TRANSITIONS.DURATION}s ${TRANSITION_EASE}`;
 
 /**
+ * Resolve a snap point to a pixel length against `size` (the viewport/container extent).
+ * Supports fractions (`0.5`), pixels (`"148px"`), percentages (`"50%"`), and `calc()`
+ * combinations of the two (`"calc(50% + 24px)"`, `"calc(100% - 40px)"`).
+ */
+function resolveLength(point: SnapPoint, size: number): number {
+	if (typeof point === "number") return point * size;
+	const expr = point.trim().replace(/^calc\(/i, "").replace(/\)$/, "");
+	const term = /([+-]?\s*\d*\.?\d+)\s*(px|%)/g;
+	let total = 0;
+	let matched = false;
+	let m: RegExpExecArray | null;
+	while ((m = term.exec(expr))) {
+		matched = true;
+		const n = Number.parseFloat(m[1].replace(/\s+/g, ""));
+		total += m[2] === "%" ? (n / 100) * size : n;
+	}
+	return matched ? total : 0;
+}
+
+/**
  * Snap-point engine, ported from vaul's `use-snap-points.ts`. Owns the active snap
  * point (controlled or internal), computes per-point pixel offsets for all four
  * directions, and drives the snap/drag/release transforms + overlay fade.
@@ -90,14 +110,12 @@ export class SnapPointsEngine {
 		const size = container
 			? { w: container.getBoundingClientRect().width, h: container.getBoundingClientRect().height }
 			: { w: this.#windowDims.w, h: this.#windowDims.h };
-		const isPx = typeof point === "string";
-		const px = isPx ? Number.parseInt(point, 10) : 0;
 
 		if (isVertical(dir)) {
-			const height = isPx ? px : (point as number) * size.h;
+			const height = resolveLength(point, size.h);
 			return { height, offset: dir === "bottom" ? size.h - height : -size.h + height };
 		}
-		const width = isPx ? px : (point as number) * size.w;
+		const width = resolveLength(point, size.w);
 		return { height: width, offset: dir === "right" ? size.w - width : -size.w + width };
 	}
 
