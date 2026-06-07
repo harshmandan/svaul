@@ -1,19 +1,28 @@
-# svaul
+<div align="center">
+
+  <img src="./static/favicon.svg" alt="svaul" width="400" />
+
+  <h1>svaul</h1>
+
+[![version](https://img.shields.io/npm/v/@harshmandan/svaul.svg)](https://www.npmjs.com/package/@harshmandan/svaul)
+[![downloads](http://img.shields.io/npm/dm/@harshmandan/svaul.svg)](https://www.npmjs.com/package/@harshmandan/svaul)
+
+</div>
 
 An unstyled, **runes-first drawer / bottom-sheet for Svelte 5** — drag-to-dismiss, snap
 points, nested drawers, and an accessible dialog core. **Zero runtime dependencies.**
 
 A ground-up Svelte 5 re-imagining of [vaul](https://github.com/emilkowalski/vaul) and
 [vaul-svelte](https://github.com/huntabyte/vaul-svelte) (see [Credits](#credits)). See
-the advantages over both in the [What svaul adds](#what-svaul-adds) section below.
+the advantages over both in the [Why svaul?](#why-svaul) section below.
+
+## Quick start
 
 ```sh
 npm i @harshmandan/svaul
 ```
 
 > Requires Svelte `^5`.
-
-## Quick start
 
 ```svelte
 <script lang="ts">
