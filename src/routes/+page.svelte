@@ -21,6 +21,10 @@
         "rounded-full px-5 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100";
 </script>
 
+<svelte:head>
+    <title>Svaul</title>
+</svelte:head>
+
 <div data-drawer-wrapper class="min-h-screen bg-gray-50">
     <!-- Intro — fills the viewport; examples live below the fold. dvh tracks the
          *dynamic* viewport so the mobile URL bar doesn't cover the bottom hint. -->
