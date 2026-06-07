@@ -61,6 +61,7 @@
 		dragSensitivity?: number;
 		scrollLockTimeout?: number;
 		handleOnly?: boolean;
+		onlyPrimaryPointer?: boolean;
 		autoFocus?: boolean;
 		noBodyStyles?: boolean;
 		disablePreventScroll?: boolean;
@@ -75,6 +76,9 @@
 		nested?: boolean;
 		/** Portal target for the overlay + content. `false` renders inline. Default `body`. */
 		portalTarget?: PortalTarget | false;
+		/** Keep the content mounted (hidden + inert) while closed instead of unmounting it,
+		 *  so it can be measured / queried before first open. */
+		keepMounted?: boolean;
 		/** Class/style for the default content panel (ignored if you supply a `content` snippet). */
 		class?: ClassValue;
 		style?: string;
@@ -114,6 +118,7 @@
 		dragSensitivity,
 		scrollLockTimeout,
 		handleOnly,
+		onlyPrimaryPointer,
 		autoFocus,
 		noBodyStyles,
 		disablePreventScroll,
@@ -126,6 +131,7 @@
 		disableAnimation,
 		nested,
 		portalTarget = "body",
+		keepMounted = false,
 		class: klass,
 		style,
 		trigger,
@@ -178,6 +184,7 @@
 		dragSensitivity: () => dragSensitivity,
 		scrollLockTimeout: () => scrollLockTimeout,
 		handleOnly: () => handleOnly,
+		onlyPrimaryPointer: () => onlyPrimaryPointer,
 		autoFocus: () => autoFocus,
 		noBodyStyles: () => noBodyStyles,
 		disablePreventScroll: () => disablePreventScroll,
@@ -228,7 +235,7 @@
 
 {#if trigger}{@render trigger(drawer.trigger)}{/if}
 
-{#if drawer.present}
+{#if keepMounted || drawer.present}
 	{#snippet tree()}
 		{#if showOverlay}
 			{#if typeof overlay === "function"}
@@ -255,10 +262,18 @@
 		{/if}
 	{/snippet}
 
+	<!-- When keepMounted, the content stays in the DOM while closed — hide + inert it. -->
+	{@const hidden = keepMounted && !drawer.present}
 	{#if portalTarget === false}
-		{@render tree()}
+		<div style={hidden ? "display: none" : "display: contents"} inert={hidden || undefined}>
+			{@render tree()}
+		</div>
 	{:else}
-		<div style="display: contents" {@attach portal(portalTarget)}>
+		<div
+			style={hidden ? "display: none" : "display: contents"}
+			inert={hidden || undefined}
+			{@attach portal(portalTarget)}
+		>
 			{@render tree()}
 		</div>
 	{/if}
