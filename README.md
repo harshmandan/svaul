@@ -41,6 +41,9 @@ Every part of the drawer is customizable via **named snippets** in the `<Drawer>
 you want to own; each renders a sensible default otherwise. Body snippets receive
 `{ open, close, setOpen, closeAll, cycleSnapPoint }` controls.
 
+To close the drawer on the browser back button, drive `open` yourself and reset it from
+`onOpenChange` + a `popstate` listener (svaul intentionally doesn't touch history).
+
 ## Key props
 
 | Prop | Default | |
@@ -57,7 +60,11 @@ you want to own; each renders a sensible default otherwise. Body snippets receiv
 
 Plus `closeThreshold`, `repositionInputs`, `preventScrollRestoration`, `noBodyStyles`,
 `setBackgroundColorOnScale`, `backgroundColor`, `borderRadius`, `autoFocus`,
-`fadeFromIndex`, `snapToSequentialPoint`, `container` — see the exported types.
+`fadeFromIndex`, `snapToSequentialPoint`, `container`, `keepMounted`, `onlyPrimaryPointer`
+— see the exported types.
+
+**Snap points** accept fractions (`0.5`), pixels (`"148px"`), percentages (`"50%"`), and
+`calc()` combinations: `snapPoints={["calc(50% + 24px)", 1]}`.
 
 ## Styling
 
