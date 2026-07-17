@@ -21,6 +21,7 @@ let saved: {
 	left: string;
 	right: string;
 	width: string;
+	scrollX: number;
 	scrollY: number;
 	href: string;
 } | null = null;
@@ -37,6 +38,7 @@ export function lockScroll(opts: ScrollLockOptions = {}): () => void {
 	if (lockCount === 1) {
 		const body = document.body;
 		const scrollY = window.scrollY;
+		const scrollX = window.scrollX;
 		const scrollbarGap = window.innerWidth - document.documentElement.clientWidth;
 		saved = {
 			overflow: body.style.overflow,
@@ -47,6 +49,7 @@ export function lockScroll(opts: ScrollLockOptions = {}): () => void {
 			left: body.style.left,
 			right: body.style.right,
 			width: body.style.width,
+			scrollX,
 			scrollY,
 			href: window.location.href
 		};
@@ -85,7 +88,9 @@ export function lockScroll(opts: ScrollLockOptions = {}): () => void {
 			// Skip the scroll restore if the URL changed and the caller opted out (SPA nav).
 			const urlChanged = window.location.href !== saved.href;
 			if (isIOS() && !(opts.preventScrollRestoration && urlChanged)) {
-				window.scrollTo(0, saved.scrollY);
+				// `instant` avoids animating a full page-length scroll on sites with
+				// `scroll-behavior: smooth`; restore both axes (not just Y).
+				window.scrollTo({ top: saved.scrollY, left: saved.scrollX, behavior: "instant" });
 			}
 			saved = null;
 		}

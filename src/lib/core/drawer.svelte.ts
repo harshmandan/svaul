@@ -160,6 +160,7 @@ export class Drawer {
 	#dragStartTime = 0;
 	#dragEndTime = 0;
 	#isAllowedToDrag = false;
+	#activePointerId: number | null = null; // the finger that owns the current gesture
 	#movedThisGesture = false; // distinguishes a handle tap from a handle drag
 	#lastTimeDragPrevented = 0;
 	#openTime = 0;
@@ -260,7 +261,11 @@ export class Drawer {
 			return () => {
 				untrap();
 				for (const el of inerted) el.removeAttribute("inert");
-				const returnTo = this.triggerEl ?? previouslyFocused;
+				// Restore focus to the trigger (or whatever had it), but only if it's still in the
+				// document — focusing a detached node silently drops focus to <body>. Fall back to
+				// the other candidate before giving up.
+				const candidates = [this.triggerEl, previouslyFocused];
+				const returnTo = candidates.find((el) => el?.isConnected);
 				returnTo?.focus?.({ preventScroll: true });
 			};
 		});
@@ -595,6 +600,12 @@ export class Drawer {
 			clearTimeout(this.#transitionTimer);
 			this.#transitionTimer = undefined;
 		}
+		// A reopen within the close window must cancel the pending snap-reset, or it would yank
+		// the freshly-opened drawer down to its first snap point with no input.
+		if (this.#closeResetTimer) {
+			clearTimeout(this.#closeResetTimer);
+			this.#closeResetTimer = undefined;
+		}
 		// A drag-close leaves an inline transform + `transition: none` on the content (and a
 		// faded opacity on the overlay). Reopening within the exit window — or every reopen
 		// with `keepMounted` — would replay the enter keyframe and then, since keyframe fill is
@@ -677,11 +688,16 @@ export class Drawer {
 	/** pointerdown — begin tracking a potential drag. */
 	onPress(event: PointerEvent): void {
 		if (!this.dismissible && !this.hasSnapPoints) return;
+		// Ignore a second finger landing mid-drag — otherwise it resets the gesture origin and
+		// teleports the drawer (and can turn a slow drag into a flick-close).
+		if (this.isDragging) return;
 		// Ignore non-primary buttons (right/middle click) when opted in.
 		if (this.onlyPrimaryPointer && event.button !== 0) return;
 		const content = this.contentEl;
 		if (!content) return;
 		if (event.target instanceof Node && !content.contains(event.target)) return;
+
+		this.#activePointerId = event.pointerId;
 
 		const rect = content.getBoundingClientRect();
 		this.#drawerHeight = rect.height;
@@ -706,6 +722,14 @@ export class Drawer {
 
 	/** pointermove — gate on swipe intent, then drag. */
 	onPointerMove(event: PointerEvent): void {
+		// Ignore moves from any finger other than the one that started the gesture. Touch-event
+		// fallbacks come through with no pointerId, so only filter real, mismatched PointerEvents.
+		if (
+			typeof event.pointerId === "number" &&
+			this.#activePointerId !== null &&
+			event.pointerId !== this.#activePointerId
+		)
+			return;
 		this.#lastPointerEvent = event;
 		const start = this.#pointerStartPoint;
 		if (!start) return;
@@ -819,13 +843,19 @@ export class Drawer {
 		this.#pointerStartPoint = null;
 		this.#wasBeyondThePoint = false;
 
-		const content = this.contentEl;
-		if (!this.isDragging || !content) return;
-
-		content.classList.remove(DRAG_CLASS);
-		this.#isAllowedToDrag = false;
+		if (!this.isDragging) return;
+		// Clear drag state up-front so it can never get stuck `true` if the content unmounted
+		// mid-drag (which would otherwise let a later handleOnly hover apply a stray transform).
+		// Capture whether a drag was actually approved this gesture before we reset the flag.
+		const engaged = this.#isAllowedToDrag;
 		this.isDragging = false;
+		this.#isAllowedToDrag = false;
+		this.#activePointerId = null;
 		this.#dragEndTime = Date.now();
+
+		const content = this.contentEl;
+		if (!content) return;
+		content.classList.remove(DRAG_CLASS);
 
 		const swipeAmount = getTranslate(content, this.direction);
 		if (!event || !this.#shouldDrag(event.target, false) || !swipeAmount || Number.isNaN(swipeAmount))
@@ -848,14 +878,26 @@ export class Drawer {
 
 		// Snap-point drawers delegate the release decision to the engine.
 		if (this.hasSnapPoints) {
+			// A gesture that was never approved as a drag (e.g. an abandoned cross-axis flick on
+			// an inner carousel) must not run the snap math — the drawer's resting offset makes
+			// swipeAmount non-zero, so it would otherwise jump snap points from incidental drift.
+			if (!engaged) {
+				this.#props.onRelease?.(event, this.open);
+				return;
+			}
 			const dirMul = directionMultiplier(this.direction);
+			let closed = false;
 			this.#snap.onRelease({
 				draggedDistance: distMoved * dirMul,
 				velocity,
 				dismissible: this.dismissible,
-				closeDrawer: () => this.closeDrawer()
+				closeDrawer: () => {
+					closed = true;
+					this.closeDrawer();
+				}
 			});
-			this.#props.onRelease?.(event, true);
+			// Report the real resulting state, not an unconditional `true` (a flick-dismiss closes).
+			this.#props.onRelease?.(event, !closed);
 			return;
 		}
 
@@ -1123,7 +1165,10 @@ export class Drawer {
 		if (this.isDragging) this.onRelease(this.#lastPointerEvent);
 	};
 	#onContentContextMenu = () => {
-		if (this.#lastPointerEvent) this.onRelease(this.#lastPointerEvent);
+		// Right-click during a drag fires contextmenu instead of pointerup, so end the drag.
+		// But only while actually dragging — otherwise an Android long-press with no movement
+		// would replay a *previous* gesture's stale coordinates and snap/close a stationary drawer.
+		if (this.isDragging && this.#lastPointerEvent) this.onRelease(this.#lastPointerEvent);
 	};
 	#onOverlayClick = (event: MouseEvent) => {
 		event.stopPropagation();

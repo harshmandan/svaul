@@ -14,6 +14,9 @@ let attached = false;
 
 function onKeydown(event: KeyboardEvent): void {
 	if (event.key !== "Escape") return;
+	// Escape during IME composition confirms/cancels the composition — it must not also
+	// dismiss the drawer (keyCode 229 covers browsers that omit `isComposing`).
+	if (event.isComposing || event.keyCode === 229) return;
 	const top = stack[stack.length - 1];
 	if (top && top.dismissible()) {
 		event.preventDefault();

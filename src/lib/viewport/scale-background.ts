@@ -175,7 +175,16 @@ export function revertScaleBackground(opts: ScaleOptions, noBodyStyles: boolean)
 	}
 
 	const wrapper = wrapperEl();
-	if (!wrapper) return;
+	if (!wrapper) {
+		// The wrapper unmounted (e.g. SPA navigation from a link inside the drawer). Still restore
+		// the body background — otherwise it's left permanently painted the scale backdrop colour.
+		if (!noBodyStyles && savedBodyBackground !== null) {
+			document.body.style.background = savedBodyBackground;
+			savedBodyBackground = null;
+		}
+		cachedWrapper = null;
+		return;
+	}
 	set(
 		wrapper,
 		{

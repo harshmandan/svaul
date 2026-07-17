@@ -254,8 +254,10 @@
 	touch-action: inherit;
 }
 
+/* Suppress text selection only *while dragging* (so a drag doesn't select body text),
+   not permanently — a blanket rule makes all drawer content uncopyable on desktop. */
 @media (hover: hover) and (pointer: fine) {
-	[data-svaul-drawer] {
+	[data-svaul-drawer].svaul-drawer-dragging {
 		user-select: none;
 	}
 }

@@ -188,4 +188,53 @@ test.describe("regressions", () => {
             expect(insideNested).toBe(true);
         }
     });
+
+    test("#10 — Escape during IME composition does not dismiss the drawer", async ({ page }) => {
+        await page.goto("/playground");
+        await page.getByRole("button", { name: "Open uncontrolled" }).click();
+        const dialog = page.getByRole("dialog").first();
+        await expect(dialog).toBeVisible();
+
+        // An Escape that ends an IME composition must be ignored by the dismiss handler.
+        await page.evaluate(() => {
+            document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", isComposing: true, bubbles: true }));
+        });
+        await expect(dialog).toBeVisible();
+
+        // A normal Escape still closes.
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+    });
+
+    test("#19 — drawer text stays selectable (user-select not forced to none when idle)", async ({ page }) => {
+        await page.goto("/playground");
+        await page.getByRole("button", { name: "Open uncontrolled" }).click();
+        const dialog = page.getByRole("dialog").first();
+        await expect(dialog).toBeVisible();
+        const us = await dialog.evaluate((el) => getComputedStyle(el).userSelect);
+        expect(us).not.toBe("none");
+    });
+
+    test("#2 — flick-dismissing a snap drawer reports open:false to onRelease", async ({ page }) => {
+        await page.goto("/playground");
+        await page.getByRole("button", { name: "Open snap drawer" }).click();
+        const dialog = page.getByRole("dialog").first();
+        await expect(dialog).toBeVisible();
+        await page.waitForTimeout(750);
+
+        const box = (await dialog.boundingBox())!;
+        const x = box.x + box.width / 2;
+        const startY = box.y + 12;
+        await page.mouse.move(x, startY);
+        await page.mouse.down();
+        for (let i = 1; i <= 6; i++) {
+            await page.mouse.move(x, startY + i * 45);
+            await page.waitForTimeout(8);
+        }
+        await page.mouse.up();
+
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        // The release that dismissed it must report open:false, not an unconditional true.
+        expect(await page.evaluate(() => (window as unknown as { __lastRelease?: boolean }).__lastRelease)).toBe(false);
+    });
 });

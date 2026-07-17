@@ -55,6 +55,7 @@
 		<Drawer
 			snapPoints={[0.4, 1]}
 			bind:activeSnapPoint={activeSnap}
+			onRelease={(_e, open) => ((window as unknown as { __lastRelease?: boolean }).__lastRelease = open)}
 			class="panel snap"
 		>
 			{#snippet trigger(props)}

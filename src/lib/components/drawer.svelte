@@ -199,7 +199,13 @@
 	});
 	setDrawerContext(drawer);
 
-	// Keep ARIA wiring in sync with which snippets are present.
+	// Set synchronously (runs during SSR too) so the server-rendered dialog already carries its
+	// `aria-labelledby`/`aria-describedby` — an $effect alone runs only on the client, leaving the
+	// SSR markup with no accessible name. The effect then keeps it in sync if the snippet changes.
+	// svelte-ignore state_referenced_locally
+	drawer.hasTitle = title != null;
+	// svelte-ignore state_referenced_locally
+	drawer.hasDescription = description != null;
 	$effect(() => {
 		drawer.hasTitle = title != null;
 		drawer.hasDescription = description != null;

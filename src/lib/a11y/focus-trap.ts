@@ -17,7 +17,11 @@ export function getFocusable(container: HTMLElement): HTMLElement[] {
 	return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => {
 		// Skip elements inside inert / aria-hidden / hidden subtrees.
 		if (el.closest("[inert],[aria-hidden='true'],[hidden]")) return false;
-		return el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement;
+		if (el === document.activeElement) return true;
+		// `visibility: hidden` / `collapse` elements still report layout box size, so an
+		// offset-only check would wrongly treat them as focusable — check computed visibility.
+		if (el.offsetWidth <= 0 && el.offsetHeight <= 0) return false;
+		return getComputedStyle(el).visibility === "visible";
 	});
 }
 
