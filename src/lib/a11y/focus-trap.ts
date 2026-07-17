@@ -28,6 +28,11 @@ export function getFocusable(container: HTMLElement): HTMLElement[] {
 export function trapFocus(container: HTMLElement): () => void {
 	const onKeydown = (e: KeyboardEvent) => {
 		if (e.key !== "Tab") return;
+		// Only the topmost drawer traps. When a drawer opens above this one it marks this
+		// drawer's layer `inert`; without this guard the lower drawer's trap would still fire,
+		// see focus "outside" its inert container, preventDefault Tab and try to focus its own
+		// inert fallback — freezing Tab entirely in stacked drawers.
+		if (container.closest("[inert]")) return;
 		const focusables = getFocusable(container);
 		const active = document.activeElement;
 

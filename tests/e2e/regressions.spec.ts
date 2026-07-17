@@ -1,8 +1,22 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 // Regression coverage for the review-report fixes.
 
 const IDENTITY = (t: string) => t === "none" || /matrix\(1, 0, 0, 1, 0, 0\)/.test(t);
+
+// Drive a real touch swipe (native scrolling actually happens, unlike synthetic mouse).
+async function swipe(page: Page, from: { x: number; y: number }, to: { x: number; y: number }, n = 8) {
+    const c = await page.context().newCDPSession(page);
+    await c.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: from.x, y: from.y }] });
+    for (let i = 1; i <= n; i++) {
+        await c.send("Input.dispatchTouchEvent", {
+            type: "touchMove",
+            touchPoints: [{ x: from.x + ((to.x - from.x) * i) / n, y: from.y + ((to.y - from.y) * i) / n }]
+        });
+        await page.waitForTimeout(16);
+    }
+    await c.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+}
 
 test.describe("regressions", () => {
     test("#8 — body gets overscroll-behavior:none while a modal drawer is open, restored on close", async ({
@@ -86,5 +100,92 @@ test.describe("regressions", () => {
         await page.waitForTimeout(550);
         const transform = await dialog.evaluate((el) => getComputedStyle(el).transform);
         expect(IDENTITY(transform)).toBe(true);
+    });
+
+    test("#3 — a top drawer swipe-closes only at its content's bottom scroll edge", async ({ page }) => {
+        await page.goto("/fixtures");
+        const scroller = page.getByTestId("top-scroller");
+
+        // (a) Not at the bottom edge → an upward swipe scrolls the content, drawer stays open.
+        await page.getByRole("button", { name: "Open top-scroll" }).click();
+        let dialog = page.getByRole("dialog").first();
+        await expect(dialog).toBeVisible();
+        await page.waitForTimeout(650);
+        await scroller.evaluate((el) => (el.scrollTop = 0));
+        let box = (await dialog.boundingBox())!;
+        const cx = box.x + box.width / 2;
+        await swipe(page, { x: cx, y: box.y + box.height - 20 }, { x: cx, y: box.y + 20 });
+        await expect(dialog).toBeVisible(); // did not close — it scrolled
+
+        // (b) Scrolled to the bottom edge → the same upward swipe closes it.
+        await scroller.evaluate((el) => (el.scrollTop = el.scrollHeight));
+        box = (await dialog.boundingBox())!;
+        await swipe(page, { x: cx, y: box.y + box.height - 20 }, { x: cx, y: box.y - 60 });
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+    });
+
+    test("horizontal-scroll gate — a left drawer scrolls its strip until the close edge", async ({ page }) => {
+        await page.goto("/fixtures");
+        const scroller = page.getByTestId("left-scroller");
+        await page.getByRole("button", { name: "Open left-scroll" }).click();
+        const dialog = page.getByRole("dialog").first();
+        await expect(dialog).toBeVisible();
+        await page.waitForTimeout(650);
+
+        const sbox = (await scroller.boundingBox())!;
+        const dbox = (await dialog.boundingBox())!;
+
+        // (a) Over the scroller (not at the right edge) → a big leftward swipe is yielded to the
+        // horizontal scroller, so the drawer does NOT close. Before the fix, horizontal drawers
+        // returned "drag" unconditionally and this same swipe would have dismissed it.
+        await scroller.evaluate((el) => (el.scrollLeft = 0));
+        const scy = sbox.y + sbox.height / 2;
+        await swipe(page, { x: sbox.x + sbox.width - 15, y: scy }, { x: sbox.x + 10, y: scy });
+        await expect(dialog).toBeVisible();
+
+        // (b) Over the drawer's empty lower area (no scroller in the path) → the leftward swipe
+        // drag-closes as normal, proving the gate didn't over-block.
+        const ecy = dbox.y + dbox.height - 60;
+        await swipe(page, { x: dbox.x + dbox.width - 20, y: ecy }, { x: dbox.x - 140, y: ecy });
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+    });
+
+    test("#4 — snap points that arrive after open reposition the drawer on-screen", async ({ page }) => {
+        await page.goto("/fixtures");
+        await page.getByRole("button", { name: "Open dynamic-snap" }).click();
+        const dialog = page.getByRole("dialog").first();
+        await expect(dialog).toBeVisible();
+        await page.waitForTimeout(650);
+
+        // Introduce snap points after the drawer is already open.
+        await page.getByTestId("add-snaps").click();
+        await page.waitForTimeout(650);
+
+        // The active point must reconcile to the first snap point and rest at a partial,
+        // on-screen offset — not stay null and leave the drawer translated fully off-screen.
+        const { ty, h } = await dialog.evaluate((el) => {
+            const m = new DOMMatrix(getComputedStyle(el).transform);
+            return { ty: m.m42, h: el.getBoundingClientRect().height };
+        });
+        expect(ty).toBeGreaterThan(0); // pushed down to the 0.5 snap point…
+        expect(ty).toBeLessThan(h); // …but not the full height off-screen
+    });
+
+    test("#6 — Tab stays trapped inside the topmost of two stacked drawers", async ({ page }) => {
+        await page.goto("/playground");
+        await page.getByRole("button", { name: "Open scaling drawer" }).click();
+        await expect(page.getByRole("dialog").first()).toBeVisible();
+        await page.getByRole("button", { name: "Open nested drawer" }).click();
+        const nested = page.getByRole("dialog").filter({ hasText: "Opening me pushed the parent back" });
+        await expect(nested).toBeVisible();
+        await page.waitForTimeout(300);
+
+        // Tabbing must move focus among the nested drawer's own focusables, never escaping to
+        // the (now-inert) parent — and must not freeze (the parent trap must stand down).
+        for (let i = 0; i < 4; i++) {
+            await page.keyboard.press("Tab");
+            const insideNested = await nested.evaluate((el) => el.contains(document.activeElement));
+            expect(insideNested).toBe(true);
+        }
     });
 });

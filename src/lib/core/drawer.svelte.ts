@@ -929,7 +929,11 @@ export class Drawer {
 
 		if (element.tagName === "SELECT") return false;
 		if (element.hasAttribute?.(ATTR.noDrag) || element.closest?.(`[${ATTR.noDrag}]`)) return false;
-		if (this.direction === "right" || this.direction === "left") return true;
+		// Horizontal drawers: vaul returned true here unconditionally, so a horizontally
+		// scrollable child (carousel, wide code block) could never scroll and, once scrolled,
+		// could never be swiped closed. Climb for a scroller that can still move toward the
+		// close edge; otherwise drag.
+		if (this.direction === "right" || this.direction === "left") return this.#climbAllowsDrag(target);
 
 		// Allow scrolling during the open animation.
 		if (this.#openTime && now - this.#openTime < 500) return false;
@@ -956,21 +960,62 @@ export class Drawer {
 			return false;
 		}
 
-		// Climb from the pointer up to the drawer surface. If a scrollable element
-		// between the two isn't scrolled to the top, let it scroll instead of dragging.
-		// Stop at the drawer itself — page-level scroll ancestors (a scrolled <body>/
-		// <html> behind the drawer) are irrelevant to the drag-vs-scroll decision.
+		return this.#climbAllowsDrag(target);
+	}
+
+	/**
+	 * Climb from the pointer target up to the drawer surface. If any element on the way can
+	 * still scroll *toward the close edge*, let it scroll (return false) instead of dragging.
+	 * Stop at the drawer itself — page-level scroll ancestors behind the drawer are irrelevant.
+	 */
+	#climbAllowsDrag(target: EventTarget | null): boolean {
+		let element = target as HTMLElement | null;
 		while (element) {
-			if (element.scrollHeight > element.clientHeight && element.scrollTop !== 0) {
-				this.#lastTimeDragPrevented = now;
+			if (this.#canScrollInCloseDir(element)) {
+				this.#lastTimeDragPrevented = Date.now();
 				return false;
 			}
-			if (element === this.contentEl || element.getAttribute?.("role") === "dialog") {
-				return true;
-			}
+			if (element === this.contentEl || element.getAttribute?.("role") === "dialog") return true;
 			element = element.parentNode as HTMLElement | null;
 		}
 		return true;
+	}
+
+	/**
+	 * Whether `el` can still scroll in the direction the close gesture would move it — i.e. the
+	 * gesture should scroll it rather than drag the drawer. Direction-aware: a bottom drawer
+	 * closes downward (drag only at scrollTop 0), a top drawer upward (drag only at the bottom
+	 * edge), and left/right use the horizontal edges. `EDGE` absorbs sub-pixel rounding.
+	 *
+	 * The overflow check matters for the far-edge directions (top/left): a non-scrollable
+	 * element (overflow: visible) whose children overflow still reports `scrollX + clientX <
+	 * scrollWidth`, which would falsely block the drag on every side/top drawer. `scrollTop`/
+	 * `scrollLeft > 0` is self-validating for bottom/right, but we check overflow uniformly.
+	 */
+	#canScrollInCloseDir(el: HTMLElement): boolean {
+		const EDGE = 1;
+		switch (this.direction) {
+			case "bottom":
+				if (!(el.scrollHeight > el.clientHeight && el.scrollTop > 0)) return false;
+				return this.#scrollableInAxis(el, "y");
+			case "top":
+				if (!(el.scrollHeight > el.clientHeight && el.scrollTop + el.clientHeight < el.scrollHeight - EDGE))
+					return false;
+				return this.#scrollableInAxis(el, "y");
+			case "right":
+				if (!(el.scrollWidth > el.clientWidth && el.scrollLeft > 0)) return false;
+				return this.#scrollableInAxis(el, "x");
+			case "left":
+				if (!(el.scrollWidth > el.clientWidth && el.scrollLeft + el.clientWidth < el.scrollWidth - EDGE))
+					return false;
+				return this.#scrollableInAxis(el, "x");
+		}
+	}
+
+	/** Whether `el`'s computed overflow on `axis` actually permits scrolling (auto/scroll/overlay). */
+	#scrollableInAxis(el: HTMLElement, axis: "x" | "y"): boolean {
+		const overflow = getComputedStyle(el)[axis === "y" ? "overflowY" : "overflowX"];
+		return overflow === "auto" || overflow === "scroll" || overflow === "overlay";
 	}
 
 	// ---------------------------------------------------------------- nested drawers

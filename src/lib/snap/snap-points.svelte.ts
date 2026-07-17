@@ -1,3 +1,4 @@
+import { untrack } from "svelte";
 import { TRANSITIONS, TRANSITION_EASE, VELOCITY_THRESHOLD, FLING_VELOCITY } from "../core/constants.js";
 import { isVertical, set } from "../core/dom.js";
 import { extract, isDefined } from "../core/reactivity.svelte.js";
@@ -52,18 +53,56 @@ export class SnapPointsEngine {
 		w: typeof window !== "undefined" ? window.innerWidth : 0,
 		h: typeof window !== "undefined" ? window.innerHeight : 0
 	});
+	/** Live size of the `container` (when set), tracked via ResizeObserver so offsets reflow. */
+	#containerDims = $state<{ w: number; h: number } | null>(null);
 	#appliedInitial = false;
 
 	constructor(deps: SnapPointsDeps) {
 		this.#deps = deps;
-		const sp = deps.snapPoints();
-		this.#internalActive = sp && sp.length > 0 ? sp[0] : null;
+		// Seed from the *sorted* first point so the very first open matches every later one.
+		this.#internalActive = this.snapPointsArr[0] ?? null;
 
 		// Track viewport size so offsets reflow on resize / rotation.
 		$effect(() => {
 			const onResize = () => (this.#windowDims = { w: window.innerWidth, h: window.innerHeight });
 			window.addEventListener("resize", onResize);
 			return () => window.removeEventListener("resize", onResize);
+		});
+
+		// Reflow container-relative offsets when the container itself resizes/rotates — the
+		// window `resize` above only covers the no-container path.
+		$effect(() => {
+			const container = this.#deps.container();
+			if (!container || typeof ResizeObserver === "undefined") {
+				this.#containerDims = null;
+				return;
+			}
+			const ro = new ResizeObserver(() => {
+				const r = container.getBoundingClientRect();
+				this.#containerDims = { w: r.width, h: r.height };
+			});
+			ro.observe(container);
+			return () => {
+				ro.disconnect();
+				this.#containerDims = null;
+			};
+		});
+
+		// Keep the internal active point valid as snapPoints arrive or change (uncontrolled
+		// only). Without this, points measured into existence after construction leave the
+		// active point null → the drawer opens fully off-screen with scroll locked and focus
+		// trapped; and dropping the active value from the array strands the index at -1 → frozen.
+		$effect(() => {
+			const arr = this.snapPointsArr; // track sorted points
+			if (isDefined(this.#deps.activeSnapPoint)) return; // controlled — the user owns it
+			untrack(() => {
+				const cur = this.#internalActive;
+				if (arr.length === 0) {
+					if (cur !== null) this.#internalActive = null;
+				} else if (cur === null || !arr.includes(cur)) {
+					this.#internalActive = arr[0];
+				}
+			});
 		});
 
 		// Reposition whenever the element mounts or the active point / offsets change.
@@ -107,8 +146,13 @@ export class SnapPointsEngine {
 	#resolve(point: SnapPoint): { height: number; offset: number } {
 		const dir = this.#deps.direction();
 		const container = this.#deps.container();
+		// Reading #containerDims (fed by the ResizeObserver) keeps this reactive to container
+		// resizes; fall back to a direct measure before the observer's first callback.
 		const size = container
-			? { w: container.getBoundingClientRect().width, h: container.getBoundingClientRect().height }
+			? (this.#containerDims ?? {
+					w: container.getBoundingClientRect().width,
+					h: container.getBoundingClientRect().height
+				})
 			: { w: this.#windowDims.w, h: this.#windowDims.h };
 
 		if (isVertical(dir)) {
@@ -287,7 +331,11 @@ export class SnapPointsEngine {
 			Math.abs(curr - currentPosition) < Math.abs(prev - currentPosition) ? curr : prev
 		);
 
-		const dim = isVertical(dir) ? window.innerHeight : window.innerWidth;
+		// Measure the fling ratio against the container when offsets resolve against one.
+		const rect = this.#deps.container()?.getBoundingClientRect();
+		const dim = isVertical(dir)
+			? (rect?.height ?? window.innerHeight)
+			: (rect?.width ?? window.innerWidth);
 		if (velocity > VELOCITY_THRESHOLD && Math.abs(draggedDistance) < dim * 0.4) {
 			const dragDir = hasDraggedUp ? 1 : -1;
 			if (dragDir > 0 && this.isLastSnapPoint) {
