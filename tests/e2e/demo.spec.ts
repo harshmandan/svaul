@@ -39,7 +39,7 @@ test.describe("Phase 6 — feature-toggle demo", () => {
 		await page.getByRole("button", { name: "Open drawer" }).click();
 		await page.waitForTimeout(200);
 
-		const wrapper = page.locator("[data-drawer-wrapper]");
+		const wrapper = page.locator("[data-svaul-drawer-wrapper]");
 		const scaled = await wrapper.evaluate((el) => getComputedStyle(el).transform);
 		expect(scaled).not.toBe("none"); // currently scaled
 
@@ -111,7 +111,7 @@ test.describe("Phase 6 — feature-toggle demo", () => {
 		await expect(dialog).toBeVisible();
 		await page.waitForTimeout(300);
 		const d = (await dialog.boundingBox())!;
-		const h = (await page.locator("[data-drawer-handle]").boundingBox())!;
+		const h = (await page.locator("[data-svaul-drawer-handle]").boundingBox())!;
 		expect(h.y).toBeGreaterThan(d.y + d.height / 2); // handle on the bottom edge
 	});
 
@@ -120,7 +120,7 @@ test.describe("Phase 6 — feature-toggle demo", () => {
 		await checkbox(page, "Disable transitions").check();
 		await page.getByRole("button", { name: "Open drawer" }).click();
 		const dialog = page.getByRole("dialog").first();
-		await expect(dialog).toHaveAttribute("data-drawer-no-animate", "");
+		await expect(dialog).toHaveAttribute("data-svaul-drawer-no-animate", "");
 		const dur = await dialog.evaluate((el) => getComputedStyle(el).transitionDuration);
 		expect(dur).toBe("0s");
 	});

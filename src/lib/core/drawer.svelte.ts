@@ -85,7 +85,7 @@ export interface DrawerOptions {
 	noBodyStyles?: MaybeGetter<boolean | undefined>;
 	/** Opt out of body scroll-locking while open. */
 	disablePreventScroll?: MaybeGetter<boolean | undefined>;
-	/** Scale `[data-drawer-wrapper]` behind the drawer (the iOS "card stack" look). */
+	/** Scale `[data-svaul-drawer-wrapper]` behind the drawer (the iOS "card stack" look). */
 	scaleBackground?: MaybeGetter<boolean | undefined>;
 	/** Paint the body while the background is scaled. Default true. */
 	setBackgroundColorOnScale?: MaybeGetter<boolean | undefined>;
@@ -242,7 +242,7 @@ export class Drawer {
 				if (child === portalRoot || !(child instanceof HTMLElement)) continue;
 				// Leave explicitly-ignored layers interactive — e.g. a popover/select that
 				// portals its dropdown to <body> alongside (not inside) the drawer.
-				if (child.matches("[data-svaul-ignore]") || child.querySelector("[data-svaul-ignore]"))
+				if (child.matches(`[${ATTR.ignore}]`) || child.querySelector(`[${ATTR.ignore}]`))
 					continue;
 				if (!child.hasAttribute("inert")) {
 					child.setAttribute("inert", "");
@@ -280,7 +280,7 @@ export class Drawer {
 					// [data-svaul-ignore] layer (e.g. a portaled popover) as "inside".
 					for (const node of event.composedPath()) {
 						if (node === content || node === this.triggerEl) return;
-						if (node instanceof Element && node.closest("[data-svaul-ignore]")) return;
+						if (node instanceof Element && node.closest(`[${ATTR.ignore}]`)) return;
 					}
 					if (this.dismissible && isTopmost(entry)) this.closeDrawer();
 				};
@@ -1110,8 +1110,8 @@ export class Drawer {
 			[ATTR.noAnimate]: this.disableAnimation ? "" : undefined,
 			"data-state": this.state,
 			style:
-				`--drawer-depth: ${this.depth};` +
-				(this.hasSnapPoints ? ` --snap-point-height: ${this.#snap.snapPointHeight}px;` : ""),
+				`--svaul-drawer-depth: ${this.depth};` +
+				(this.hasSnapPoints ? ` --svaul-drawer-snap-point-height: ${this.#snap.snapPointHeight}px;` : ""),
 			onpointerdown: this.#onContentPointerDown,
 			onpointermove: this.#onContentPointerMove,
 			onpointerup: this.#onContentRelease,
@@ -1131,7 +1131,7 @@ export class Drawer {
 			[ATTR.noAnimate]: this.disableAnimation ? "" : undefined,
 			"data-state": this.state,
 			"aria-hidden": true,
-			style: `--drawer-depth: ${this.depth};`,
+			style: `--svaul-drawer-depth: ${this.depth};`,
 			onclick: this.#onOverlayClick
 		};
 	}
@@ -1155,7 +1155,6 @@ export class Drawer {
 	get handle() {
 		return {
 			[ATTR.handle]: "",
-			[ATTR.visible]: String(this.present),
 			"aria-hidden": true,
 			onpointerdown: this.#onHandlePointerDown,
 			onpointermove: this.#onHandlePointerMove,

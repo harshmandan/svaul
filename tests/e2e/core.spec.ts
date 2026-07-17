@@ -37,7 +37,7 @@ test.describe("Phase 2 — core open/close", () => {
 		await page.getByRole("button", { name: "Open uncontrolled" }).click();
 		await expect(page.getByRole("dialog").first()).toBeVisible();
 
-		await page.locator("[data-drawer-overlay]").click({ position: { x: 5, y: 5 } });
+		await page.locator("[data-svaul-drawer-overlay]").click({ position: { x: 5, y: 5 } });
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 	});
 

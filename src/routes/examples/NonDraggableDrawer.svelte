@@ -14,12 +14,12 @@
         >
             <p class="mt-2">Drag anywhere to move the drawer, except the grey box.</p>
             <div
-                data-drawer-no-drag
+                data-svaul-drawer-no-drag
                 class="mt-4 grid place-items-center gap-1 rounded-lg bg-gray-100 p-5 text-center text-gray-700"
             >
                 <p class="font-medium">Try dragging me 👋</p>
                 <p class="text-sm text-gray-500">
-                    It has <code class="rounded bg-black/5 px-1">data-drawer-no-drag</code>.
+                    It has <code class="rounded bg-black/5 px-1">data-svaul-drawer-no-drag</code>.
                 </p>
             </div>
         </div>

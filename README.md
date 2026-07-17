@@ -62,7 +62,7 @@ To close the drawer on the browser back button, drive `open` yourself and reset 
 | `snapPoints` | — | fractions (`0.5`) or px (`"148px"`); pair with `bind:activeSnapPoint` |
 | `dismissible` | `true` | drag / overlay-click / Escape can close |
 | `modal` | `true` | overlay + scroll-lock + focus-trap |
-| `scaleBackground` | `false` | scale `[data-drawer-wrapper]` (the card-stack look) |
+| `scaleBackground` | `false` | scale `[data-svaul-drawer-wrapper]` (the card-stack look) |
 | `handleOnly` | `false` | only the handle initiates a drag |
 | `dragSensitivity` | `1` | `>1` makes the drawer move faster than the cursor |
 | `disableAnimation` | `false` | instant open / close |
@@ -78,8 +78,8 @@ Plus `closeThreshold`, `repositionInputs`, `preventScrollRestoration`, `noBodySt
 ## Styling
 
 It ships unstyled — bring your own `class`. Everything is reachable via data attributes
-(`[data-drawer]`, `[data-drawer-overlay]`, `[data-drawer-handle]`) and CSS variables
-(`--drawer-bg`, `--drawer-overlay-bg`, `--drawer-handle-bg`, `--drawer-handle-gap`, …).
+(`[data-svaul-drawer]`, `[data-svaul-drawer-overlay]`, `[data-svaul-drawer-handle]`) and CSS variables
+(`--svaul-drawer-bg`, `--svaul-drawer-overlay-bg`, `--svaul-drawer-handle-bg`, `--svaul-drawer-handle-gap`, …).
 
 The library's own CSS lives in the **`svaul` cascade layer**, so your styles always win
 without `!important`. With Tailwind v4, declare the layer order once:
@@ -89,7 +89,7 @@ without `!important`. With Tailwind v4, declare the layer order once:
 @import "tailwindcss";
 ```
 
-> **`scaleBackground` note:** wrap your page in `<div data-drawer-wrapper>` and give it an
+> **`scaleBackground` note:** wrap your page in `<div data-svaul-drawer-wrapper>` and give it an
 > opaque background. The gap behind the lifted page is painted via `setBackgroundColorOnScale`
 > (default black) — if the wrapper is transparent the whole page looks black.
 

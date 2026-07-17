@@ -55,7 +55,7 @@ test.describe("Phase 4 — snap points", () => {
 
 	test("tapping the handle cycles to the next snap point", async ({ page }) => {
 		const dialog = await openSnap(page);
-		await page.locator("[data-drawer-handle]").click(); // tap, no drag
+		await page.locator("[data-svaul-drawer-handle]").click(); // tap, no drag
 		await page.waitForTimeout(650);
 		expect(await translateY(dialog)).toBeLessThan(40); // snapped to full (1)
 		await expect(page.getByText(/active: 1/)).toBeVisible();

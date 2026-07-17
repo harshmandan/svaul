@@ -9,7 +9,7 @@
 	const dirs: DrawerDirection[] = ["top", "right", "left"];
 </script>
 
-<div data-drawer-wrapper>
+<div data-svaul-drawer-wrapper>
 <main>
 	<h1>svelte-drawer · playground</h1>
 	<p>Phases 1–5: open/close, drag, snap points, focus trap, scroll-lock, scaling, nesting.</p>
@@ -141,7 +141,7 @@
 		cursor: pointer;
 		font: inherit;
 	}
-	:global([data-drawer].panel) {
+	:global([data-svaul-drawer].panel) {
 		padding: 1.25rem 1.5rem 2rem;
 		box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.12);
 	}

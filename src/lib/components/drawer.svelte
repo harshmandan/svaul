@@ -284,7 +284,7 @@
 		{#if typeof handle === "function"}
 			{@render handle(drawer.handle)}
 		{:else}
-			<div {...drawer.handle}><span data-drawer-handle-hitarea></span></div>
+			<div {...drawer.handle}><span data-svaul-drawer-handle-hitarea></span></div>
 		{/if}
 	{/if}
 {/snippet}

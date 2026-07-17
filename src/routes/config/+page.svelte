@@ -67,7 +67,7 @@
 	}
 </script>
 
-<div data-drawer-wrapper>
+<div data-svaul-drawer-wrapper>
 	<main>
 		<header>
 			<h1>svelte-drawer</h1>
@@ -161,7 +161,7 @@
 	/* The scaled wrapper needs its own opaque background + full height, so the
 	   `setBackgroundColorOnScale` black only shows in the lifted gap behind it
 	   (not through a transparent page). */
-	[data-drawer-wrapper] {
+	[data-svaul-drawer-wrapper] {
 		display: block;
 		min-height: 100vh;
 		background: #f4f4f5;
@@ -263,15 +263,15 @@
 	.body.tall {
 		min-height: 75vh;
 	}
-	:global([data-drawer].drawer-panel) {
+	:global([data-svaul-drawer].drawer-panel) {
 		display: flex;
 		flex-direction: column;
 		gap: 0.9rem;
 		padding: 1rem 1.5rem 2rem;
 		box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.16);
 	}
-	:global([data-drawer-direction="left"].drawer-panel),
-	:global([data-drawer-direction="right"].drawer-panel) {
+	:global([data-svaul-drawer-direction="left"].drawer-panel),
+	:global([data-svaul-drawer-direction="right"].drawer-panel) {
 		width: min(24rem, 90vw);
 	}
 </style>

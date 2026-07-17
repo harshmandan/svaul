@@ -54,19 +54,22 @@ export const KEYBOARD_CHANGE_THRESHOLD = 60;
 export const KEYBOARD_BUFFER = 24;
 
 /** Class toggled on the drawer + overlay while a drag is in progress. */
-export const DRAG_CLASS = "drawer-dragging";
+export const DRAG_CLASS = "svaul-drawer-dragging";
 
 /** Data-attribute namespace for hooks/selectors this library owns. */
 export const ATTR = {
-	drawer: "data-drawer",
-	direction: "data-drawer-direction",
-	visible: "data-drawer-visible",
-	overlay: "data-drawer-overlay",
-	handle: "data-drawer-handle",
-	handleHitarea: "data-drawer-handle-hitarea",
-	snapPoints: "data-drawer-snap-points",
-	snapPointsOverlay: "data-drawer-snap-points-overlay",
-	wrapper: "data-drawer-wrapper",
-	noDrag: "data-drawer-no-drag",
-	noAnimate: "data-drawer-no-animate"
+	drawer: "data-svaul-drawer",
+	direction: "data-svaul-drawer-direction",
+	overlay: "data-svaul-drawer-overlay",
+	handle: "data-svaul-drawer-handle",
+	handleHitarea: "data-svaul-drawer-handle-hitarea",
+	snapPoints: "data-svaul-drawer-snap-points",
+	snapPointsOverlay: "data-svaul-drawer-snap-points-overlay",
+	wrapper: "data-svaul-drawer-wrapper",
+	noDrag: "data-svaul-drawer-no-drag",
+	noAnimate: "data-svaul-drawer-no-animate",
+	/** User-applied marker on non-drawer elements (e.g. a portaled popover/select) telling
+	 *  svaul to treat them as "inside" for outside-click dismissal. Not a drawer part, so it
+	 *  carries the library brand rather than the `-drawer-` element prefix. */
+	ignore: "data-svaul-ignore"
 } as const;

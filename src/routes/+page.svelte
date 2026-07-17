@@ -26,7 +26,7 @@
     <title>Svaul</title>
 </svelte:head>
 
-<div data-drawer-wrapper class="min-h-screen bg-gray-50">
+<div data-svaul-drawer-wrapper class="min-h-screen bg-gray-50">
     <!-- Intro — fills the viewport; examples live below the fold. dvh tracks the
          *dynamic* viewport so the mobile URL bar doesn't cover the bottom hint. -->
     <section

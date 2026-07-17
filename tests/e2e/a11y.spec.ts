@@ -42,7 +42,7 @@ test.describe("Phase 5 — a11y + viewport", () => {
 		await page.getByRole("button", { name: "Open scaling drawer" }).click();
 		await page.waitForTimeout(150);
 		const transform = await page.evaluate(
-			() => getComputedStyle(document.querySelector("[data-drawer-wrapper]")!).transform
+			() => getComputedStyle(document.querySelector("[data-svaul-drawer-wrapper]")!).transform
 		);
 		expect(transform).not.toBe("none"); // scaled
 	});

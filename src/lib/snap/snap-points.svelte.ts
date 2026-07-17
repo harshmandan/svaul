@@ -175,7 +175,7 @@ export class SnapPointsEngine {
 		return idx >= 0 ? (this.snapPointsOffset[idx] ?? null) : null;
 	}
 
-	/** Resting offset (px) for the active point — used for the `--snap-point-height` CSS var. */
+	/** Resting offset (px) for the active point — used for the `--svaul-drawer-snap-point-height` CSS var. */
 	get snapPointHeight(): number {
 		return this.activeSnapPointOffset ?? 0;
 	}
