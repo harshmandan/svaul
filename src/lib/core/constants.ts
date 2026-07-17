@@ -22,7 +22,7 @@ export const VELOCITY_THRESHOLD = 0.4;
 export const CLOSE_THRESHOLD = 0.25;
 
 /** After scrolling inner content, dragging the drawer is blocked for this long (ms). */
-export const SCROLL_LOCK_TIMEOUT = 100;
+export const SCROLL_LOCK_TIMEOUT = 250;
 
 /** Drawer corner radius (px) used by the background-scale "card stack" effect. */
 export const BORDER_RADIUS = 8;

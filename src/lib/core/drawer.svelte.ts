@@ -73,7 +73,7 @@ export interface DrawerOptions {
 	 * (e.g. 2 ≈ vaul-svelte's feel — easier to flick away).
 	 */
 	dragSensitivity?: MaybeGetter<number | undefined>;
-	/** After scrolling inner content, block dragging for this long (ms). Default 100. */
+	/** After scrolling inner content, block dragging for this long (ms). Default 250. */
 	scrollLockTimeout?: MaybeGetter<number | undefined>;
 	/** Only the handle initiates a drag (content body scrolls instead). */
 	handleOnly?: MaybeGetter<boolean | undefined>;
@@ -1027,6 +1027,37 @@ export class Drawer {
 		this.onPointerMove(event);
 	};
 	#onContentRelease = (event: PointerEvent) => this.onRelease(event);
+	// The browser fires `pointercancel` the moment it claims a touch gesture for native
+	// scrolling of a scrollable descendant — which is exactly when the finger is at the
+	// scroll-top edge and continuing into a drag-to-close. Treating that as a release
+	// aborts the drag. For touch we ignore it and keep driving the gesture through the
+	// touch-event fallback below (mirrors vaul-svelte, which never binds pointercancel);
+	// mouse/pen never scroll-cancel this way, so they keep the normal release behaviour.
+	#onContentPointerCancel = (event: PointerEvent) => {
+		if (event.pointerType === "touch") return;
+		this.onRelease(event);
+	};
+	// Touch fallback: after a pointercancel the pointer-event stream stops, but touch
+	// events keep flowing, so the drag can still complete. TouchEvent isn't a PointerEvent,
+	// so adapt it to the shape onPointerMove/onRelease read (pageX/pageY/pointerType/target).
+	#toPointerish(event: TouchEvent, useChanged = false): PointerEvent {
+		const list = useChanged ? event.changedTouches : event.touches;
+		const t = list[0] ?? event.changedTouches[0];
+		return new Proxy(event as unknown as PointerEvent, {
+			get(target, prop) {
+				if (prop === "pageX") return t?.pageX ?? 0;
+				if (prop === "pageY") return t?.pageY ?? 0;
+				if (prop === "pointerType") return "touch";
+				const value = (target as unknown as Record<string | symbol, unknown>)[prop];
+				return typeof value === "function" ? value.bind(target) : value;
+			}
+		});
+	}
+	#onContentTouchMove = (event: TouchEvent) => {
+		if (this.handleOnly) return;
+		this.onPointerMove(this.#toPointerish(event));
+	};
+	#onContentTouchEnd = (event: TouchEvent) => this.onRelease(this.#toPointerish(event, true));
 	#onContentContextMenu = () => {
 		if (this.#lastPointerEvent) this.onRelease(this.#lastPointerEvent);
 	};
@@ -1084,7 +1115,9 @@ export class Drawer {
 			onpointerdown: this.#onContentPointerDown,
 			onpointermove: this.#onContentPointerMove,
 			onpointerup: this.#onContentRelease,
-			onpointercancel: this.#onContentRelease,
+			onpointercancel: this.#onContentPointerCancel,
+			ontouchmove: this.#onContentTouchMove,
+			ontouchend: this.#onContentTouchEnd,
 			oncontextmenu: this.#onContentContextMenu
 		};
 	}
