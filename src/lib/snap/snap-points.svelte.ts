@@ -28,7 +28,11 @@ const trans = (prop: "transform" | "opacity") =>
  */
 function resolveLength(point: SnapPoint, size: number): number {
 	if (typeof point === "number") return point * size;
-	const expr = point.trim().replace(/^calc\(/i, "").replace(/\)$/, "");
+	const raw = point.trim();
+	// A unit-less numeric string ("0.5") is a fraction, like the number form. Without this the
+	// px/% matcher below finds nothing and silently resolves it to 0 → drawer rests off-screen.
+	if (/^[+-]?\d*\.?\d+$/.test(raw)) return Number.parseFloat(raw) * size;
+	const expr = raw.replace(/^calc\(/i, "").replace(/\)$/, "");
 	const term = /([+-]?\s*\d*\.?\d+)\s*(px|%)/g;
 	let total = 0;
 	let matched = false;

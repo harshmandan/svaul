@@ -51,17 +51,29 @@ test.describe("Phase 3 — drag physics", () => {
 		expect(transform === "none" || /matrix\(1, 0, 0, 1, 0, 0\)/.test(transform)).toBe(true);
 	});
 
-	test("non-dismissible drawer does not close on drag", async ({ page }) => {
-		// the directions section has dismissible drawers; use a dedicated check via console:
-		// here we just assert the close-threshold path is gated by dismissible using the
-		// controlled drawer left open, then dragging a tiny amount keeps it open.
-		const dialog = await openUncontrolled(page);
-		const box = (await dialog.boundingBox())!;
-		await page.mouse.move(box.x + box.width / 2, box.y + 16);
-		await page.mouse.down();
-		await page.mouse.move(box.x + box.width / 2, box.y + 22);
-		await page.waitForTimeout(250);
-		await page.mouse.up();
+	test("non-dismissible drawer does not close on a past-threshold drag", async ({ page }) => {
+		await page.goto("/fixtures");
+		await page.getByRole("button", { name: "Open non-dismissible" }).click();
+		const dialog = page.getByRole("dialog").first();
 		await expect(dialog).toBeVisible();
+		await page.waitForTimeout(650);
+
+		// A real, well-past-threshold downward flick — a dismissible drawer would close here.
+		const box = (await dialog.boundingBox())!;
+		const x = box.x + box.width / 2;
+		const startY = box.y + 16;
+		await page.mouse.move(x, startY);
+		await page.mouse.down();
+		for (let i = 1; i <= 6; i++) {
+			await page.mouse.move(x, startY + i * 45);
+			await page.waitForTimeout(8);
+		}
+		await page.mouse.up();
+
+		// dismissible={false} → it must stay open…
+		await expect(dialog).toBeVisible();
+		// …and the imperative close() (force) still works.
+		await page.getByTestId("force-close").click();
+		await expect(page.getByRole("dialog")).toHaveCount(0);
 	});
 });

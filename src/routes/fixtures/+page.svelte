@@ -34,6 +34,46 @@
         </div>
     </Drawer>
 
+    <!-- right drawer (drag-close coverage for the mirror direction). -->
+    <Drawer direction="right" class="panel wide">
+        {#snippet trigger(props)}
+            <button {...props} class="btn">Open right</button>
+        {/snippet}
+        {#snippet title()}Right{/snippet}
+        <p>Drag me toward the right edge to dismiss.</p>
+    </Drawer>
+
+    <!-- non-modal drawer: page stays interactive, dismissed by outside pointerdown. -->
+    <button class="btn" data-testid="outside">outside</button>
+    <Drawer modal={false} class="panel">
+        {#snippet trigger(props)}
+            <button {...props} class="btn">Open non-modal</button>
+        {/snippet}
+        {#snippet title()}Non-modal{/snippet}
+        <p>No overlay; click outside to dismiss. Body scroll is not locked.</p>
+    </Drawer>
+
+    <!-- non-dismissible: drag/overlay/Escape cannot close it. -->
+    <Drawer dismissible={false} class="panel">
+        {#snippet trigger(props)}
+            <button {...props} class="btn">Open non-dismissible</button>
+        {/snippet}
+        {#snippet title()}Non-dismissible{/snippet}
+        <p>Dragging past the threshold must not close this drawer.</p>
+        {#snippet footer({ close })}
+            <button class="btn" data-testid="force-close" onclick={close}>Force close</button>
+        {/snippet}
+    </Drawer>
+
+    <!-- px + calc snap points (resolveLength parser coverage). -->
+    <Drawer snapPoints={["160px", "calc(50% + 20px)", 1]} class="panel tall">
+        {#snippet trigger(props)}
+            <button {...props} class="btn">Open px-snap</button>
+        {/snippet}
+        {#snippet title()}Px snaps{/snippet}
+        <div style="height:60vh"></div>
+    </Drawer>
+
     <!-- #4: snap points that arrive after the drawer is already open. The control lives inside
          the drawer so it isn't covered by the modal overlay. -->
     <Drawer snapPoints={snaps} class="panel tall">
