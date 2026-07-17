@@ -3,6 +3,7 @@
     import DefaultDrawer from "./examples/DefaultDrawer.svelte";
     import NonDismissibleDrawer from "./examples/NonDismissibleDrawer.svelte";
     import ScrollableDrawer from "./examples/ScrollableDrawer.svelte";
+    import FullScreenDrawer from "./examples/FullScreenDrawer.svelte";
     import FormDrawer from "./examples/FormDrawer.svelte";
     import NonDraggableDrawer from "./examples/NonDraggableDrawer.svelte";
     import SnapPointsDrawer from "./examples/SnapPointsDrawer.svelte";
@@ -106,6 +107,7 @@
             <div class="mt-3 space-y-2">
                 <NonDismissibleDrawer />
                 <ScrollableDrawer />
+                <FullScreenDrawer />
                 <FormDrawer />
                 <NonDraggableDrawer />
             </div>
