@@ -32,6 +32,8 @@
 /* Overridable defaults (zero specificity — any user class / Tailwind utility wins). */
 :where([data-svaul-drawer]) {
 	touch-action: none;
+	/* Keep scroll/overscroll from a drawer scroller chaining out to the page. */
+	overscroll-behavior: contain;
 	transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
 	background: var(--svaul-drawer-bg, #ffffff);
 	color: var(--svaul-drawer-color, inherit);

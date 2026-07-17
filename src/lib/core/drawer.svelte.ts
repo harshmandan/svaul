@@ -595,10 +595,22 @@ export class Drawer {
 			clearTimeout(this.#transitionTimer);
 			this.#transitionTimer = undefined;
 		}
+		// A drag-close leaves an inline transform + `transition: none` on the content (and a
+		// faded opacity on the overlay). Reopening within the exit window — or every reopen
+		// with `keepMounted` — would replay the enter keyframe and then, since keyframe fill is
+		// `none`, snap back to that stuck mid-drag frame. Wipe it so we start from the clean
+		// CSS enter state. No-op when no drag styles were written.
+		this.#clearDragStyles();
 		this.hasBeenOpened = true;
 		this.#present = true;
 		this.#openTime = Date.now();
 		this.#afterTransition(() => this.#props.onOpenChangeComplete?.(true));
+	}
+
+	/** Remove any inline transform/opacity/transition a drag left behind (reverting to CSS). */
+	#clearDragStyles(): void {
+		if (this.contentEl) set(this.contentEl, { transform: "", transition: "" }, true);
+		if (this.overlayEl) set(this.overlayEl, { opacity: "", transition: "" }, true);
 	}
 
 	#handleClose(): void {
@@ -1058,6 +1070,13 @@ export class Drawer {
 		this.onPointerMove(this.#toPointerish(event));
 	};
 	#onContentTouchEnd = (event: TouchEvent) => this.onRelease(this.#toPointerish(event, true));
+	// A system gesture (incoming call, notification-shade pull, edge back-swipe) fires
+	// touchcancel and ends the touch stream — with pointercancel ignored for touch, nothing
+	// else would settle the drag, leaving the drawer frozen mid-offset (drag class +
+	// transition:none stuck, isDragging true). Settle it from the last known position.
+	#onContentTouchCancel = () => {
+		if (this.isDragging) this.onRelease(this.#lastPointerEvent);
+	};
 	#onContentContextMenu = () => {
 		if (this.#lastPointerEvent) this.onRelease(this.#lastPointerEvent);
 	};
@@ -1118,6 +1137,7 @@ export class Drawer {
 			onpointercancel: this.#onContentPointerCancel,
 			ontouchmove: this.#onContentTouchMove,
 			ontouchend: this.#onContentTouchEnd,
+			ontouchcancel: this.#onContentTouchCancel,
 			oncontextmenu: this.#onContentContextMenu
 		};
 	}

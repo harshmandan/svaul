@@ -14,6 +14,7 @@ import { isIOS } from "../core/browser.js";
 let lockCount = 0;
 let saved: {
 	overflow: string;
+	overscrollBehavior: string;
 	paddingRight: string;
 	position: string;
 	top: string;
@@ -39,6 +40,7 @@ export function lockScroll(opts: ScrollLockOptions = {}): () => void {
 		const scrollbarGap = window.innerWidth - document.documentElement.clientWidth;
 		saved = {
 			overflow: body.style.overflow,
+			overscrollBehavior: body.style.overscrollBehavior,
 			paddingRight: body.style.paddingRight,
 			position: body.style.position,
 			top: body.style.top,
@@ -48,6 +50,10 @@ export function lockScroll(opts: ScrollLockOptions = {}): () => void {
 			scrollY,
 			href: window.location.href
 		};
+
+		// Stop a swipe-to-close from a scroll container at its edge from chaining to the
+		// viewport and triggering Chrome/Android pull-to-refresh mid-close.
+		body.style.overscrollBehavior = "none";
 
 		if (isIOS()) {
 			body.style.position = "fixed";
@@ -69,6 +75,7 @@ export function lockScroll(opts: ScrollLockOptions = {}): () => void {
 		if (lockCount === 0 && saved) {
 			const body = document.body;
 			body.style.overflow = saved.overflow;
+			body.style.overscrollBehavior = saved.overscrollBehavior;
 			body.style.paddingRight = saved.paddingRight;
 			body.style.position = saved.position;
 			body.style.top = saved.top;
