@@ -1,6 +1,6 @@
 {
 	"name": "@harshmandan/svaul",
-	"version": "1.2.0",
+	"version": "1.2.1",
 	"description": "An unstyled, runes-first drawer/bottom-sheet for Svelte 5. A zero-dependency reimagining of vaul / vaul-svelte.",
 	"author": "Harsh Mandan",
 	"license": "MIT",
