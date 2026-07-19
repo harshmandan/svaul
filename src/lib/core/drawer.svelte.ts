@@ -206,6 +206,9 @@ export class Drawer {
 				if (this.#isAllowedToDrag) e.preventDefault();
 			};
 			el.addEventListener("touchmove", onTouchMove, { passive: false });
+			// A fresh mount is a fresh open: animate the enter via a transform transition (not a CSS
+			// keyframe) so the open is interruptible and nothing depends on keyframes.
+			this.#fluidEnter(el);
 			return () => {
 				el.removeEventListener("touchmove", onTouchMove);
 				this.contentEl = null;
@@ -784,6 +787,28 @@ export class Drawer {
 		});
 		if (overlay) set(overlay, { opacity: "0", transition: `opacity ${duration}ms ${TRANSITION_EASE}` }, true);
 		return duration;
+	}
+
+	/**
+	 * Fresh open: animate the content (and overlay) IN via a transform/opacity transition instead of
+	 * a CSS enter keyframe, so the open is interruptible and nothing depends on keyframes. Same
+	 * pin → reflow → transition dance as #fluidClose, in reverse. Snap drawers (which rest at a CSS
+	 * offset) and `disableAnimation` are skipped — they keep their instant/CSS positioning.
+	 */
+	#fluidEnter(el: HTMLElement): void {
+		if (!this.open || this.hasSnapPoints || this.disableAnimation) return;
+		const dirMul = directionMultiplier(this.direction);
+		const dimension = isVertical(this.direction) ? el.offsetHeight : el.offsetWidth;
+		const overlay = this.overlayEl;
+		const ease = `${TRANSITIONS.DURATION}s ${TRANSITION_EASE}`;
+		// 1. Pin fully closed, kill any keyframe, no transition.
+		set(el, { animationName: "none", transition: "none", transform: this.#translate(dimension * dirMul) });
+		if (overlay && this.shouldFade) set(overlay, { animationName: "none", transition: "none", opacity: "0" }, true);
+		// 2. Reflow commits the closed frame as the transition's start.
+		void el.offsetHeight;
+		// 3. Transition to open.
+		set(el, { transform: this.#translate(0), transition: `transform ${ease}` });
+		if (overlay && this.shouldFade) set(overlay, { opacity: "1", transition: `opacity ${ease}` }, true);
 	}
 	// -------------------------------------------------------------- end velocity-throw close
 
