@@ -1182,6 +1182,8 @@ export class Drawer {
 		const swipeAmount = this.contentEl ? getTranslate(this.contentEl, this.direction) : null;
 
 		if (element.tagName === "SELECT") return false;
+		// A range slider is dragged along its own axis; a drawer drag must never hijack it.
+		if (element.closest?.('input[type="range"]')) return false;
 		if (element.hasAttribute?.(ATTR.noDrag) || element.closest?.(`[${ATTR.noDrag}]`)) return false;
 		// Horizontal drawers: vaul returned true here unconditionally, so a horizontally
 		// scrollable child (carousel, wide code block) could never scroll and, once scrolled,
@@ -1208,11 +1210,15 @@ export class Drawer {
 	 * Stop at the drawer itself — page-level scroll ancestors behind the drawer are irrelevant.
 	 */
 	#climbAllowsDrag(target: EventTarget | null): boolean {
-		let element = target as HTMLElement | null;
-		while (element) {
-			if (this.#canScrollInCloseDir(element)) return false;
-			if (element === this.contentEl || element.getAttribute?.("role") === "dialog") return true;
-			element = element.parentNode as HTMLElement | null;
+		let node = target as Node | null;
+		while (node) {
+			if (node instanceof HTMLElement) {
+				if (this.#canScrollInCloseDir(node)) return false;
+				if (node === this.contentEl || node.getAttribute("role") === "dialog") return true;
+			}
+			// Cross shadow boundaries so a scroller inside a web component is still detected: stepping
+			// off a shadow root jumps to its host rather than dead-ending at the fragment.
+			node = node instanceof ShadowRoot ? node.host : node.parentNode;
 		}
 		return true;
 	}
