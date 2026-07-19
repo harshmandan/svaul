@@ -122,9 +122,21 @@ test.describe("interruptible close", () => {
 		expect(ys[ys.length - 1]).toBeLessThan(ys[0]);
 		await expect(dialog).toBeVisible();
 	});
+
+	test("re-opening mid NON-swipe (outside-click) close also glides continuously", async ({ page }) => {
+		const dialog = await openDrawer(page);
+		const height = (await dialog.boundingBox())!.height;
+		await page.mouse.click(8, 8); // outside-click close (no velocity) — now transition-driven too
+		await page.waitForTimeout(60);
+		await page.getByRole("button", { name: "Open", exact: true }).click({ noWaitAfter: true });
+		const ys = (await sampleY(page, dialog, 5, 30)).filter((n) => !Number.isNaN(n));
+		// Continuous reverse from the live position — never jumps to fully-closed first.
+		expect(Math.max(...ys), `saw ${JSON.stringify(ys)} (h=${Math.round(height)})`).toBeLessThan(height - 5);
+		await expect(dialog).toBeVisible();
+	});
 });
 
-test.describe("non-swipe closes use the default keyframe (not the throw)", () => {
+test.describe("non-swipe closes animate (default duration, no velocity)", () => {
 	test("an outside click animates closed", async ({ page }) => {
 		const dialog = await openDrawer(page);
 		const height = (await dialog.boundingBox())!.height;

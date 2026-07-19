@@ -683,12 +683,12 @@ export class Drawer {
 
 	#handleClose(): void {
 		if (!this.#present) return;
-		// Throw ONLY on a swipe release (velocity captured). Outside-press / Escape / programmatic
-		// closes have no velocity and fall through to the default CSS exit keyframe. Snap drawers keep
-		// the classic path (the snap engine already handles their velocity).
-		const throwing =
-			this.#closeVelocity != null && !this.hasSnapPoints && !this.disableAnimation;
-		const duration = throwing ? this.#fluidClose() : DURATION_MS;
+		// Drive every close through the inline transform transition (not the CSS exit keyframe) so the
+		// motion stays interruptible mid-flight — a reopen reverses continuously from the live position
+		// (see #handleOpen). A swipe release scales the duration by velocity; overlay/Escape/programmatic
+		// closes have none and use the default. Snap drawers + disableAnimation keep the classic path.
+		const useTransition = !this.hasSnapPoints && !this.disableAnimation;
+		const duration = useTransition ? this.#fluidClose() : DURATION_MS;
 		this.#closeVelocity = null;
 		this.#afterTransition(() => {
 			this.#isFluidClosing = false;
