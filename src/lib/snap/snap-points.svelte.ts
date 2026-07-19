@@ -21,28 +21,78 @@ export interface SnapPointsDeps {
 const trans = (prop: "transform" | "opacity") =>
 	`${prop} ${TRANSITIONS.DURATION}s ${TRANSITION_EASE}`;
 
+const CALC_TERM = /([+-]?\s*\d*\.?\d+)\s*(px|%|rem|vh|vw)/gi;
+const warnedSnapPoints = new Set<string>();
+
+function warnSnapPoint(point: SnapPoint, reason: string): void {
+	const key = String(point);
+	if (warnedSnapPoints.has(key) || typeof console === "undefined") return;
+	warnedSnapPoints.add(key);
+	console.warn(`[svaul] snap point ${JSON.stringify(point)}: ${reason}`);
+}
+
+/** Root font size (for `rem`), SSR-safe. */
+function rootFontSize(): number {
+	if (typeof window === "undefined") return 16;
+	const fs = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+	return Number.isFinite(fs) && fs > 0 ? fs : 16;
+}
+
+function resolveUnit(n: number, unit: string, size: number): number {
+	switch (unit) {
+		case "px":
+			return n;
+		case "%":
+			return (n / 100) * size;
+		case "rem":
+			return n * rootFontSize();
+		case "vh":
+			return (n / 100) * (typeof window !== "undefined" ? window.innerHeight : 0);
+		case "vw":
+			return (n / 100) * (typeof window !== "undefined" ? window.innerWidth : 0);
+		default:
+			return 0;
+	}
+}
+
 /**
- * Resolve a snap point to a pixel length against `size` (the viewport/container extent).
- * Supports fractions (`0.5`), pixels (`"148px"`), percentages (`"50%"`), and `calc()`
- * combinations of the two (`"calc(50% + 24px)"`, `"calc(100% - 40px)"`).
+ * Resolve a snap point to a pixel length against `size` (the viewport/container extent), clamped to
+ * `[0, size]` so an oversized value can never rest the drawer off-screen past the fully-open edge.
+ * Accepts:
+ *  - numbers/unit-less strings: `≤ 1` is a fraction of `size`, `> 1` is pixels (e.g. `0.5`, `"180"`);
+ *  - single units: `"180px"`, `"50%"`, `"12rem"`, `"40vh"`, `"30vw"`;
+ *  - `calc()` sums of the above (`"calc(50% + 24px)"`, `"calc(100% - 40px)"`).
+ * An unrecognized/empty expression resolves to 0 and warns (once) instead of silently misbehaving.
  */
 function resolveLength(point: SnapPoint, size: number): number {
-	if (typeof point === "number") return point * size;
+	const clamp = (len: number) => Math.min(Math.max(len, 0), size);
+
+	if (typeof point === "number") return clamp(point <= 1 ? point * size : point);
 	const raw = point.trim();
-	// A unit-less numeric string ("0.5") is a fraction, like the number form. Without this the
-	// px/% matcher below finds nothing and silently resolves it to 0 → drawer rests off-screen.
-	if (/^[+-]?\d*\.?\d+$/.test(raw)) return Number.parseFloat(raw) * size;
+	// A unit-less numeric string follows the same ≤1 fraction / >1 pixel rule as the number form.
+	if (/^[+-]?\d*\.?\d+$/.test(raw)) {
+		const n = Number.parseFloat(raw);
+		return clamp(n <= 1 ? n * size : n);
+	}
 	const expr = raw.replace(/^calc\(/i, "").replace(/\)$/, "");
-	const term = /([+-]?\s*\d*\.?\d+)\s*(px|%)/g;
 	let total = 0;
 	let matched = false;
 	let m: RegExpExecArray | null;
-	while ((m = term.exec(expr))) {
+	CALC_TERM.lastIndex = 0;
+	while ((m = CALC_TERM.exec(expr))) {
 		matched = true;
 		const n = Number.parseFloat(m[1].replace(/\s+/g, ""));
-		total += m[2] === "%" ? (n / 100) * size : n;
+		total += resolveUnit(n, m[2].toLowerCase(), size);
 	}
-	return matched ? total : 0;
+	if (!matched) {
+		warnSnapPoint(point, "could not be parsed; resolving to 0");
+		return 0;
+	}
+	// Any alphabetic residue means the expression carried a unit we don't understand (`em`, `ch`, …)
+	// → the sum above is a partial (silently wrong) resolve. Warn so it's visible.
+	const leftover = expr.replace(CALC_TERM, "").replace(/[\s+\-*/().]/g, "");
+	if (leftover.length) warnSnapPoint(point, `contains an unsupported unit in "${raw}"; ignoring it`);
+	return clamp(total);
 }
 
 /**
@@ -177,12 +227,20 @@ export class SnapPointsEngine {
 	// #resolve when a `container` is set — would otherwise re-run on *every* getter
 	// access, and these are read many times per pointermove. Dependencies (snapPoints,
 	// direction, container, window size) don't change mid-drag, so this computes once.
-	#pairs = $derived.by(() =>
-		(this.#deps.snapPoints() ?? [])
+	#pairs = $derived.by(() => {
+		const resolved = (this.#deps.snapPoints() ?? [])
 			.map((point) => ({ point, ...this.#resolve(point) }))
 			.sort((a, b) => a.height - b.height)
-			.map(({ point, offset }) => ({ point, offset: Math.round(offset) }))
-	);
+			.map(({ point, offset }) => ({ point, offset: Math.round(offset) }));
+		// Collapse points that resolve to the same rest offset — keeping both would leave an
+		// indistinguishable dead point that the offset-keyed lookups (findIndex, reduce) can't select.
+		const deduped: { point: SnapPoint; offset: number }[] = [];
+		for (const p of resolved) {
+			if (deduped[deduped.length - 1]?.offset === p.offset) continue;
+			deduped.push(p);
+		}
+		return deduped;
+	});
 	#arr: SnapPoint[] = $derived(this.#pairs.map((p) => p.point));
 	#offsets: number[] = $derived(this.#pairs.map((p) => p.offset));
 
