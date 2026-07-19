@@ -730,13 +730,24 @@ export class Drawer {
 
 	#afterTransition(cb: () => void, ms: number = DURATION_MS): void {
 		if (this.#transitionTimer) clearTimeout(this.#transitionTimer);
-		// No animation → mount/unmount immediately instead of waiting out the transition.
-		if (this.disableAnimation) {
+		// No animation → mount/unmount immediately instead of waiting out the transition. Reduced-motion
+		// collapses the CSS transition to ~0 (see the media query in the stylesheet), so hold the
+		// present-state for the same instant instead of a stale DURATION_MS — otherwise the overlay and
+		// content linger on screen for half a second after an effectively-instant close.
+		if (this.disableAnimation || this.#prefersReducedMotion()) {
 			cb();
 			return;
 		}
 		if (typeof setTimeout === "undefined") return;
 		this.#transitionTimer = setTimeout(cb, ms);
+	}
+
+	#prefersReducedMotion(): boolean {
+		return (
+			typeof window !== "undefined" &&
+			typeof window.matchMedia === "function" &&
+			window.matchMedia("(prefers-reduced-motion: reduce)").matches
+		);
 	}
 
 	// ---------------------------------------------------------------- velocity-throw close
