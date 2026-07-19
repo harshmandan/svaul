@@ -16,7 +16,7 @@ function translateY(transform: string): number {
 }
 
 async function openDrawer(page: Page, settleMs = 560): Promise<Locator> {
-	await page.goto("/velocity");
+	await page.goto("/test-suite");
 	await page.getByRole("button", { name: "Open", exact: true }).click();
 	const dialog = page.getByRole("dialog").first();
 	await expect(dialog).toBeVisible();
@@ -80,7 +80,7 @@ test.describe("velocity throw", () => {
 
 test.describe("enter animation", () => {
 	test("the enter animates in (transition, not a jump to open)", async ({ page }) => {
-		await page.goto("/velocity");
+		await page.goto("/test-suite");
 		await page.getByRole("button", { name: "Open", exact: true }).click();
 		const dialog = page.getByRole("dialog").first();
 		await expect(dialog).toBeVisible();
@@ -101,7 +101,7 @@ test.describe("no drag-lock timers", () => {
 	// a re-introduced lock would leave the dialog mounted.
 	for (const openDelay of [80, 300]) {
 		test(`flick ${openDelay}ms after open still dismisses`, async ({ page }) => {
-			await page.goto("/velocity");
+			await page.goto("/test-suite");
 			await page.getByRole("button", { name: "Open", exact: true }).click();
 			const dialog = page.getByRole("dialog").first();
 			await expect(dialog).toBeVisible();

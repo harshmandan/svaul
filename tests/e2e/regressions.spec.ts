@@ -22,7 +22,7 @@ test.describe("regressions", () => {
     test("#8 — body gets overscroll-behavior:none while a modal drawer is open, restored on close", async ({
         page
     }) => {
-        await page.goto("/playground");
+        await page.goto("/test-suite");
         const before = await page.evaluate(() => document.body.style.overscrollBehavior);
 
         await page.getByRole("button", { name: "Open uncontrolled" }).click();
@@ -67,7 +67,7 @@ test.describe("regressions", () => {
     });
 
     test("#7 — touchcancel mid-drag settles the drawer instead of freezing it", async ({ page }) => {
-        await page.goto("/playground");
+        await page.goto("/test-suite");
         await page.getByRole("button", { name: "Open uncontrolled" }).click();
         const dialog = page.getByRole("dialog").first();
         await expect(dialog).toBeVisible();
@@ -172,7 +172,7 @@ test.describe("regressions", () => {
     });
 
     test("#6 — Tab stays trapped inside the topmost of two stacked drawers", async ({ page }) => {
-        await page.goto("/playground");
+        await page.goto("/test-suite");
         await page.getByRole("button", { name: "Open scaling drawer" }).click();
         await expect(page.getByRole("dialog").first()).toBeVisible();
         await page.getByRole("button", { name: "Open nested drawer" }).click();
@@ -190,7 +190,7 @@ test.describe("regressions", () => {
     });
 
     test("#10 — Escape during IME composition does not dismiss the drawer", async ({ page }) => {
-        await page.goto("/playground");
+        await page.goto("/test-suite");
         await page.getByRole("button", { name: "Open uncontrolled" }).click();
         const dialog = page.getByRole("dialog").first();
         await expect(dialog).toBeVisible();
@@ -207,7 +207,7 @@ test.describe("regressions", () => {
     });
 
     test("#19 — drawer text stays selectable (user-select not forced to none when idle)", async ({ page }) => {
-        await page.goto("/playground");
+        await page.goto("/test-suite");
         await page.getByRole("button", { name: "Open uncontrolled" }).click();
         const dialog = page.getByRole("dialog").first();
         await expect(dialog).toBeVisible();
@@ -216,7 +216,7 @@ test.describe("regressions", () => {
     });
 
     test("#2 — flick-dismissing a snap drawer reports open:false to onRelease", async ({ page }) => {
-        await page.goto("/playground");
+        await page.goto("/test-suite");
         await page.getByRole("button", { name: "Open snap drawer" }).click();
         const dialog = page.getByRole("dialog").first();
         await expect(dialog).toBeVisible();

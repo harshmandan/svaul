@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
 async function openUncontrolled(page: Page) {
-	await page.goto("/playground");
+	await page.goto("/test-suite");
 	await page.getByRole("button", { name: "Open uncontrolled" }).click();
 	const dialog = page.getByRole("dialog").first();
 	await expect(dialog).toBeVisible();

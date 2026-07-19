@@ -13,7 +13,7 @@ async function translateY(el: Locator): Promise<number> {
 }
 
 async function openSnap(page: Page) {
-	await page.goto("/playground");
+	await page.goto("/test-suite");
 	await page.getByRole("button", { name: "Open snap drawer" }).click();
 	const dialog = page.getByRole("dialog").first();
 	await expect(dialog).toBeVisible();

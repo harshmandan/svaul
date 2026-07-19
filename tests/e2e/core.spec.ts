@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test.describe("Phase 2 — core open/close", () => {
 	test("uncontrolled drawer opens from its trigger and portals to body", async ({ page }) => {
-		await page.goto("/playground");
+		await page.goto("/test-suite");
 
 		// Closed initially.
 		await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -24,7 +24,7 @@ test.describe("Phase 2 — core open/close", () => {
 	});
 
 	test("closes via the Close button", async ({ page }) => {
-		await page.goto("/playground");
+		await page.goto("/test-suite");
 		await page.getByRole("button", { name: "Open uncontrolled" }).click();
 		await expect(page.getByRole("dialog").first()).toBeVisible();
 
@@ -33,7 +33,7 @@ test.describe("Phase 2 — core open/close", () => {
 	});
 
 	test("closes when the overlay is clicked (dismissible)", async ({ page }) => {
-		await page.goto("/playground");
+		await page.goto("/test-suite");
 		await page.getByRole("button", { name: "Open uncontrolled" }).click();
 		await expect(page.getByRole("dialog").first()).toBeVisible();
 
@@ -42,7 +42,7 @@ test.describe("Phase 2 — core open/close", () => {
 	});
 
 	test("controlled drawer reflects bind:open both ways", async ({ page }) => {
-		await page.goto("/playground");
+		await page.goto("/test-suite");
 		const toggle = page.getByRole("button", { name: /Toggle externally/ });
 
 		await toggle.click();

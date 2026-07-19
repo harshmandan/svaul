@@ -15,7 +15,7 @@ import { test, expect } from "@playwright/test";
 test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
 
 test("a committed touch drag claims the gesture (preventDefaults touchmove)", async ({ page }) => {
-	await page.goto("/playground");
+	await page.goto("/test-suite");
 	const client = await page.context().newCDPSession(page);
 
 	await page.getByRole("button", { name: "Open uncontrolled" }).click();
