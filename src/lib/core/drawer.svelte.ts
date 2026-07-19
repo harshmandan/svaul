@@ -656,12 +656,10 @@ export class Drawer {
 				opacity: "1",
 				transition: `opacity ${duration}ms ${TRANSITION_EASE}`
 			});
-			this.#afterTransition(() => {
-				// Revert to the CSS-driven state so a later close can play the exit keyframe again
-				// (the glide left `animation-name:none` inline).
-				this.#clearDragStyles();
-				this.#props.onOpenChangeComplete?.(true);
-			}, duration);
+			// Keep `animation-name:none` inline after the glide settles. Clearing it would revert to
+			// the CSS-driven state and, since data-state is still "open", RE-FIRE the enter keyframe —
+			// replaying the open from the bottom (a visible glitch). All motion is transition-driven now.
+			this.#afterTransition(() => this.#props.onOpenChangeComplete?.(true), duration);
 			return;
 		}
 		this.#isFluidClosing = false;
