@@ -990,7 +990,13 @@ export class Drawer {
 		let dragPx = 0;
 		if (!hasSnap) {
 			const closeProgress = this.#grabCloseProgress - draggedDistance;
-			dragPx = closeProgress < 0 ? -dampenValue(-closeProgress) * dirMul : closeProgress * dirMul;
+			// Past fully-open (negative) rubber-bands. Clamp the damped value to the open direction so it
+			// eases smoothly from 0 — without the clamp, `dampenValue`'s offset produces a ~16px jump in
+			// the *closing* direction the instant the drawer crosses past its resting position.
+			dragPx =
+				closeProgress < 0
+					? Math.min(-dampenValue(-closeProgress), 0) * dirMul
+					: closeProgress * dirMul;
 			percentageDragged = dimension > 0 ? Math.max(closeProgress, 0) / dimension : 0;
 		}
 
