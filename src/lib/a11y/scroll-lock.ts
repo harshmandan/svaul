@@ -14,6 +14,7 @@ import { isIOS } from "../core/browser.js";
 let lockCount = 0;
 let saved: {
 	overflow: string;
+	htmlOverflow: string;
 	overscrollBehavior: string;
 	paddingRight: string;
 	position: string;
@@ -42,6 +43,7 @@ export function lockScroll(opts: ScrollLockOptions = {}): () => void {
 		const scrollbarGap = window.innerWidth - document.documentElement.clientWidth;
 		saved = {
 			overflow: body.style.overflow,
+			htmlOverflow: document.documentElement.style.overflow,
 			overscrollBehavior: body.style.overscrollBehavior,
 			paddingRight: body.style.paddingRight,
 			position: body.style.position,
@@ -65,6 +67,10 @@ export function lockScroll(opts: ScrollLockOptions = {}): () => void {
 			body.style.right = "0";
 			body.style.width = "100%";
 		} else {
+			// Lock the real viewport scroller. `<body>` alone only works when `<html>` overflow is
+			// `visible` (so it propagates to the viewport); a consumer setting `html { overflow-x:
+			// hidden }` breaks that, so lock `<html>` too. Scrollbar-gap padding avoids the shift.
+			document.documentElement.style.overflow = "hidden";
 			body.style.overflow = "hidden";
 			if (scrollbarGap > 0) body.style.paddingRight = `${scrollbarGap}px`;
 		}
@@ -78,6 +84,7 @@ export function lockScroll(opts: ScrollLockOptions = {}): () => void {
 		if (lockCount === 0 && saved) {
 			const body = document.body;
 			body.style.overflow = saved.overflow;
+			document.documentElement.style.overflow = saved.htmlOverflow;
 			body.style.overscrollBehavior = saved.overscrollBehavior;
 			body.style.paddingRight = saved.paddingRight;
 			body.style.position = saved.position;
