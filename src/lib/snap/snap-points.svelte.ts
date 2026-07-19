@@ -354,10 +354,12 @@ export class SnapPointsEngine {
 	onRelease(args: {
 		draggedDistance: number;
 		velocity: number;
+		/** Sign of the release flick in the draggedDistance convention (+1 = toward more-open), or 0. */
+		flickDir: number;
 		dismissible: boolean;
 		closeDrawer: () => void;
 	}): void {
-		const { draggedDistance, velocity, dismissible, closeDrawer } = args;
+		const { draggedDistance, velocity, flickDir, dismissible, closeDrawer } = args;
 		const dir = this.#deps.direction();
 		const offsets = this.snapPointsOffset;
 		const sp = this.snapPointsArr;
@@ -376,14 +378,18 @@ export class SnapPointsEngine {
 				: activeOffset + draggedDistance;
 		const isFirst = this.activeSnapPointIndex === 0;
 		const hasDraggedUp = draggedDistance > 0;
+		// Only fling when the release flick agrees with the net drag direction. A flick that reverses
+		// the drag (e.g. drag up, then flick down at release) falls through to the nearest-point logic
+		// instead of throwing to the far end the wrong way.
+		const flingConsistent = flickDir !== 0 && Math.sign(draggedDistance) === flickDir;
 
 		// Velocity fling: skip straight to close / first / last.
-		if (!seq && velocity > FLING_VELOCITY && !hasDraggedUp) {
+		if (!seq && velocity > FLING_VELOCITY && flingConsistent && !hasDraggedUp) {
 			if (dismissible) closeDrawer();
 			else this.snapToPoint(offsets[0]);
 			return;
 		}
-		if (!seq && velocity > FLING_VELOCITY && hasDraggedUp) {
+		if (!seq && velocity > FLING_VELOCITY && flingConsistent && hasDraggedUp) {
 			this.snapToPoint(offsets[sp.length - 1]);
 			return;
 		}

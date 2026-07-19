@@ -774,18 +774,20 @@ export class Drawer {
 	}
 
 	/**
-	 * Instantaneous release speed (px/ms), magnitude only. Derived from the final ≤ SAMPLE_MAX_AGE_MS
-	 * of motion (so a slow drag ending in a flick reads fast), falling back to the last per-move
-	 * velocity when the final sample is stale (finger paused before releasing).
+	 * Instantaneous release velocity (px/ms) along the drag axis, **signed** in raw axis coordinates
+	 * (down/right positive). Derived from the final ≤ SAMPLE_MAX_AGE_MS of motion (so a slow drag
+	 * ending in a flick reads fast), falling back to the last per-move velocity when the final sample
+	 * is stale (finger paused before releasing). Callers take `Math.abs` for speed and use the sign
+	 * for the flick *direction* (which can differ from the net drag direction).
 	 */
 	#releaseVelocity(pos: number, time: number): number {
 		const last = this.#lastSample;
 		if (last && time >= last.time && time - last.time <= RELEASE.SAMPLE_MAX_AGE_MS) {
 			const dt = Math.max(time - last.time, RELEASE.SAMPLE_MIN_DT_MS);
 			const v = (pos - last.pos) / dt;
-			if (v !== 0) return Math.abs(v);
+			if (v !== 0) return v;
 		}
-		return Math.abs(this.#lastMoveVelocity);
+		return this.#lastMoveVelocity;
 	}
 
 	// ---------------------------------------------------------------- drag physics
@@ -1037,7 +1039,8 @@ export class Drawer {
 		// (so a high sensitivity moves the drawer further without collapsing thresholds).
 		const rawDist = this.#pointerStart - this.#axis(event);
 		const distMoved = rawDist * this.dragSensitivity;
-		const velocity = this.#releaseVelocity(this.#axis(event), this.#dragEndTime);
+		const signedVelocity = this.#releaseVelocity(this.#axis(event), this.#dragEndTime);
+		const velocity = Math.abs(signedVelocity);
 
 		if (velocity > 0.05) {
 			this.justReleased = true;
@@ -1055,10 +1058,15 @@ export class Drawer {
 				return;
 			}
 			const dirMul = directionMultiplier(this.direction);
+			// Flick direction in the engine's draggedDistance convention (+1 = toward more-open / "up").
+			// The release *flick* can oppose the net drag (drag up, flick down); the engine only flings
+			// when this agrees with the net drag, so a reversing flick no longer throws the wrong way.
+			const flickDir = Math.sign(-signedVelocity * dirMul);
 			let closed = false;
 			this.#snap.onRelease({
 				draggedDistance: distMoved * dirMul,
 				velocity,
+				flickDir,
 				dismissible: this.dismissible,
 				closeDrawer: () => {
 					closed = true;
