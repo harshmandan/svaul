@@ -19,8 +19,6 @@
 	position: fixed;
 	/* Per-level z-index so a nested drawer (and its overlay) sits above its parent. */
 	z-index: calc(var(--svaul-drawer-z-index, 1000) + var(--svaul-drawer-depth, 0) * 10);
-	animation-duration: 0.5s;
-	animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* Promote a compositor layer only while actually dragging (avoids a permanent layer
@@ -34,7 +32,10 @@
 	touch-action: none;
 	/* Keep scroll/overscroll from a drawer scroller chaining out to the page. */
 	overscroll-behavior: contain;
-	transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+	/* Enter/exit is a plain transform transition (not a keyframe) so it interpolates from the
+	   current position and can be interrupted/reversed. The duration is a variable so a velocity
+	   release can shorten it per-close (set inline in JS); it resets to the default otherwise. */
+	transition: transform var(--svaul-drawer-duration, 0.5s) cubic-bezier(0.32, 0.72, 0, 1);
 	background: var(--svaul-drawer-bg, #ffffff);
 	color: var(--svaul-drawer-color, inherit);
 }
@@ -81,40 +82,27 @@
 }
 
 /* ----------------------------------------------------- enter / exit (no snap) */
-[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="bottom"][data-state="open"] {
-	animation-name: svaul-drawer-slide-from-bottom;
-}
-[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="bottom"][data-state="closed"] {
-	animation-name: svaul-drawer-slide-to-bottom;
-}
-[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="top"][data-state="open"] {
-	animation-name: svaul-drawer-slide-from-top;
-}
-[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="top"][data-state="closed"] {
-	animation-name: svaul-drawer-slide-to-top;
-}
-[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="left"][data-state="open"] {
-	animation-name: svaul-drawer-slide-from-left;
-}
-[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="left"][data-state="closed"] {
-	animation-name: svaul-drawer-slide-to-left;
-}
-[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="right"][data-state="open"] {
-	animation-name: svaul-drawer-slide-from-right;
-}
-[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="right"][data-state="closed"] {
-	animation-name: svaul-drawer-slide-to-right;
-}
-
 /*
- * Hold the exit animation's end frame so the drawer doesn't snap back to its open
- * resting position for one frame before it unmounts (the dismiss "blink"). Applied
- * only to the closed state — using it on enter would pin the open transform and
- * override the inline transforms used while dragging.
+ * Open resting = translate(0) (the default — no rule). Closed (exit) AND the transient "starting"
+ * frame (present for the first frame after mount, then removed) sit at the fully-closed offset; the
+ * transform transition above animates the drawer in and out. Because it's a transition (not a
+ * keyframe), interrupting it mid-flight reverses continuously from the live position.
  */
-[data-svaul-drawer][data-state="closed"],
-[data-svaul-drawer-overlay][data-state="closed"] {
-	animation-fill-mode: forwards;
+[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="bottom"][data-state="closed"],
+[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="bottom"][data-svaul-drawer-starting] {
+	transform: translate3d(0, var(--svaul-drawer-initial-transform, 100%), 0);
+}
+[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="top"][data-state="closed"],
+[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="top"][data-svaul-drawer-starting] {
+	transform: translate3d(0, calc(var(--svaul-drawer-initial-transform, 100%) * -1), 0);
+}
+[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="left"][data-state="closed"],
+[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="left"][data-svaul-drawer-starting] {
+	transform: translate3d(calc(var(--svaul-drawer-initial-transform, 100%) * -1), 0, 0);
+}
+[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="right"][data-state="closed"],
+[data-svaul-drawer][data-svaul-drawer-snap-points="false"][data-svaul-drawer-direction="right"][data-svaul-drawer-starting] {
+	transform: translate3d(var(--svaul-drawer-initial-transform, 100%), 0, 0);
 }
 
 /* snap-point drawers rest at a CSS-var offset instead of animating in */
@@ -180,22 +168,22 @@
 	inset: 0;
 	z-index: calc(var(--svaul-drawer-overlay-z-index, 999) + var(--svaul-drawer-depth, 0) * 10);
 	background: var(--svaul-drawer-overlay-bg, rgba(0, 0, 0, 0.4));
-	/* Duration here (not only on non-snap) so the snap-drawer fade-out is timed, not instant. */
-	animation-duration: 0.5s;
-	animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+	/* Fade via a transition (shares the duration variable, so a velocity release shortens the
+	   backdrop fade in step with the drawer) instead of a keyframe. */
+	transition: opacity var(--svaul-drawer-duration, 0.5s) cubic-bezier(0.32, 0.72, 0, 1);
 }
-[data-svaul-drawer-overlay][data-svaul-drawer-snap-points="false"][data-state="open"] {
-	animation-name: svaul-drawer-fade-in;
+/* Non-snap overlay: opaque when open; transparent when closed OR in the transient starting frame. */
+[data-svaul-drawer-overlay][data-svaul-drawer-snap-points="false"][data-state="closed"],
+[data-svaul-drawer-overlay][data-svaul-drawer-snap-points="false"][data-svaul-drawer-starting] {
+	opacity: 0;
 }
 [data-svaul-drawer-overlay][data-state="closed"] {
-	animation-name: svaul-drawer-fade-out;
 	/* While closing, let taps fall through to the page (e.g. the trigger) so the drawer can be
 	   re-opened mid-close instead of the fading overlay swallowing the click. */
 	pointer-events: none;
 }
 [data-svaul-drawer-overlay][data-svaul-drawer-snap-points="true"] {
 	opacity: 0;
-	transition: opacity 0.5s cubic-bezier(0.32, 0.72, 0, 1);
 }
 [data-svaul-drawer-overlay][data-svaul-drawer-snap-points="true"]:not([data-svaul-drawer-snap-points-overlay="true"]):not(
 		[data-state="closed"]
@@ -265,77 +253,9 @@
 	}
 }
 
-/* ----------------------------------------------------------------- keyframes */
-@keyframes svaul-drawer-fade-in {
-	from {
-		opacity: 0;
-	}
-	to {
-		opacity: 1;
-	}
-}
-@keyframes svaul-drawer-fade-out {
-	to {
-		opacity: 0;
-	}
-}
-@keyframes svaul-drawer-slide-from-bottom {
-	from {
-		transform: translate3d(0, var(--svaul-drawer-initial-transform, 100%), 0);
-	}
-	to {
-		transform: translate3d(0, 0, 0);
-	}
-}
-@keyframes svaul-drawer-slide-to-bottom {
-	to {
-		transform: translate3d(0, var(--svaul-drawer-initial-transform, 100%), 0);
-	}
-}
-@keyframes svaul-drawer-slide-from-top {
-	from {
-		transform: translate3d(0, calc(var(--svaul-drawer-initial-transform, 100%) * -1), 0);
-	}
-	to {
-		transform: translate3d(0, 0, 0);
-	}
-}
-@keyframes svaul-drawer-slide-to-top {
-	to {
-		transform: translate3d(0, calc(var(--svaul-drawer-initial-transform, 100%) * -1), 0);
-	}
-}
-@keyframes svaul-drawer-slide-from-left {
-	from {
-		transform: translate3d(calc(var(--svaul-drawer-initial-transform, 100%) * -1), 0, 0);
-	}
-	to {
-		transform: translate3d(0, 0, 0);
-	}
-}
-@keyframes svaul-drawer-slide-to-left {
-	to {
-		transform: translate3d(calc(var(--svaul-drawer-initial-transform, 100%) * -1), 0, 0);
-	}
-}
-@keyframes svaul-drawer-slide-from-right {
-	from {
-		transform: translate3d(var(--svaul-drawer-initial-transform, 100%), 0, 0);
-	}
-	to {
-		transform: translate3d(0, 0, 0);
-	}
-}
-@keyframes svaul-drawer-slide-to-right {
-	to {
-		transform: translate3d(var(--svaul-drawer-initial-transform, 100%), 0, 0);
-	}
-}
-
 @media (prefers-reduced-motion: reduce) {
 	[data-svaul-drawer],
 	[data-svaul-drawer-overlay] {
-		animation-duration: 0.01ms !important;
 		transition-duration: 0.01ms !important;
 	}
 }

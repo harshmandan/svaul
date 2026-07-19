@@ -156,10 +156,11 @@ export class Drawer {
 	// --- velocity-throw close scratch ---
 	/** Instantaneous release speed (px/ms) handed from onRelease to the close handler when the
 	 *  close originated from a swipe. Null for non-gesture closes (overlay click, Escape,
-	 *  programmatic) → those fall back to the default keyframe close. */
+	 *  programmatic) → those use the default close duration. */
 	#closeVelocity: number | null = null;
-	/** True while an inline transform-transition close is animating (so a reopen can interrupt it). */
-	#isFluidClosing = false;
+	/** True for the first painted frame after a fresh mount: holds the content at the closed offset
+	 *  (via `data-svaul-drawer-starting`) so the transform transition plays IN when it's removed. */
+	#starting = $state(false);
 	/** Last recorded drag sample `{pos, time}` along the axis, for instantaneous release velocity. */
 	#lastSample: { pos: number; time: number } | null = null;
 	/** Velocity (px/ms) between the two most recent drag samples — the release-velocity fallback. */
@@ -209,9 +210,6 @@ export class Drawer {
 				if (this.#isAllowedToDrag) e.preventDefault();
 			};
 			el.addEventListener("touchmove", onTouchMove, { passive: false });
-			// A fresh mount is a fresh open: animate the enter via a transform transition (not a CSS
-			// keyframe) so the open is interruptible and nothing depends on keyframes.
-			this.#fluidEnter(el);
 			return () => {
 				el.removeEventListener("touchmove", onTouchMove);
 				this.contentEl = null;
@@ -628,77 +626,78 @@ export class Drawer {
 	}
 
 	// ---------------------------------------------------------------- transitions
+	// Open/close is a CSS transform (+ overlay opacity) transition selected by data attributes, not by
+	// JS setting transforms every frame:
+	//  · `data-state` ("open" | "closed", from the `state` getter) picks open (translate 0) vs closed.
+	//  · `data-svaul-drawer-starting` holds the content at the closed offset for the first painted
+	//    frame after mount; removing it releases the transition IN. See the CSS.
+	// JS only toggles those attributes, times the unmount, and — for a velocity release — shortens the
+	// close via the `--svaul-drawer-duration` variable. Interrupting a close is free: reopening flips
+	// data-state back to "open" and the live transition reverses from the current position.
 	#handleOpen(): void {
 		if (this.#transitionTimer) {
 			clearTimeout(this.#transitionTimer);
 			this.#transitionTimer = undefined;
 		}
-		// A reopen within the close window must cancel the pending snap-reset, or it would yank
-		// the freshly-opened drawer down to its first snap point with no input.
+		// A reopen within the close window must cancel the pending snap-reset, or it would yank the
+		// freshly-opened drawer down to its first snap point with no input.
 		if (this.#closeResetTimer) {
 			clearTimeout(this.#closeResetTimer);
 			this.#closeResetTimer = undefined;
 		}
-		// A stale close-velocity from a blocked/aborted close must never leak into the next close.
 		this.#closeVelocity = null;
-		// Interrupt: a reopen landed while a throw close was still animating. Glide back to open
-		// from wherever the drawer currently is — a live transition reverses from the current
-		// computed transform, so this is continuous (no keyframe restart, no waiting out the exit).
-		if (this.#isFluidClosing && this.contentEl) {
-			this.#isFluidClosing = false;
-			this.hasBeenOpened = true;
-			this.#present = true;
-			const duration = this.#reopenDuration();
-			set(this.contentEl, {
-				animationName: "none",
-				transform: this.#translate(0),
-				transition: `transform ${duration}ms ${TRANSITION_EASE}`
-			});
-			set(this.overlayEl, {
-				animationName: "none",
-				opacity: "1",
-				transition: `opacity ${duration}ms ${TRANSITION_EASE}`
-			});
-			// Keep `animation-name:none` inline after the glide settles. Clearing it would revert to
-			// the CSS-driven state and, since data-state is still "open", RE-FIRE the enter keyframe —
-			// replaying the open from the bottom (a visible glitch). All motion is transition-driven now.
-			this.#afterTransition(() => this.#props.onOpenChangeComplete?.(true), duration);
-			return;
-		}
-		this.#isFluidClosing = false;
-		// A drag-close leaves an inline transform + `transition: none` on the content (and a
-		// faded opacity on the overlay). Reopening within the exit window — or every reopen
-		// with `keepMounted` — would replay the enter keyframe and then, since keyframe fill is
-		// `none`, snap back to that stuck mid-drag frame. Wipe it so we start from the clean
-		// CSS enter state. No-op when no drag styles were written.
-		this.#clearDragStyles();
+		const fresh = !this.#present;
 		this.hasBeenOpened = true;
 		this.#present = true;
+		// Clear any per-close duration override + inline drag styles so the CSS transition drives the
+		// open. No-op on a fresh mount (contentEl isn't attached yet); on a reopen mid-close it lets
+		// data-state="open" reverse the drawer from its current position.
+		this.#resetInline();
+		if (fresh) {
+			// Mount at the closed offset (starting attribute), then release to open on the next painted
+			// frame → the transition plays IN. Skipped on a reopen-mid-close so it doesn't jump closed.
+			this.#starting = true;
+			if (typeof requestAnimationFrame !== "undefined") {
+				requestAnimationFrame(() => requestAnimationFrame(() => (this.#starting = false)));
+			} else {
+				this.#starting = false;
+			}
+		}
 		this.#afterTransition(() => this.#props.onOpenChangeComplete?.(true));
-	}
-
-	/** Remove any inline transform/opacity/transition a drag (or fluid close) left behind,
-	 *  reverting to the CSS-driven state — including `animationName` so the enter keyframe
-	 *  can play again after a fluid-close cycle. */
-	#clearDragStyles(): void {
-		if (this.contentEl) set(this.contentEl, { transform: "", transition: "", animationName: "" }, true);
-		if (this.overlayEl) set(this.overlayEl, { opacity: "", transition: "", animationName: "" }, true);
 	}
 
 	#handleClose(): void {
 		if (!this.#present) return;
-		// Drive every close through the inline transform transition (not the CSS exit keyframe) so the
-		// motion stays interruptible mid-flight — a reopen reverses continuously from the live position
-		// (see #handleOpen). A swipe release scales the duration by velocity; overlay/Escape/programmatic
-		// closes have none and use the default. Snap drawers + disableAnimation keep the classic path.
-		const useTransition = !this.hasSnapPoints && !this.disableAnimation;
-		const duration = useTransition ? this.#fluidClose() : DURATION_MS;
+		const content = this.contentEl;
+		const overlay = this.overlayEl;
+		// A velocity release shortens the close via the duration variable (non-snap only). The `state`
+		// getter has already flipped data-state to "closed", so the CSS closed rule + transition drive
+		// the exit from the live position; overlay/Escape/programmatic closes just use the default.
+		let ms = DURATION_MS;
+		if (this.#closeVelocity != null && !this.hasSnapPoints && !this.disableAnimation && content) {
+			const current = Math.abs(getTranslate(content, this.direction) ?? 0);
+			ms = this.#throwDuration(Math.max(this.#axisDimension() - current, 0), this.#closeVelocity);
+			set(content, { "--svaul-drawer-duration": `${ms}ms` });
+			set(overlay, { "--svaul-drawer-duration": `${ms}ms` }, true);
+		}
 		this.#closeVelocity = null;
+		// A drag left an inline transform (+ transition:none); remove them so the CSS closed transform
+		// and transition take over from the live position. A non-drag close has nothing to clear.
+		if (content) set(content, { transform: "", transition: "" }, true);
+		if (overlay) set(overlay, { opacity: "", transition: "" }, true);
 		this.#afterTransition(() => {
-			this.#isFluidClosing = false;
 			this.#present = false;
 			this.#props.onOpenChangeComplete?.(false);
-		}, duration);
+		}, ms);
+	}
+
+	/** Clear inline transform/opacity/transition + the per-close duration override so the CSS
+	 *  transition drives the motion purely from the data attributes. */
+	#resetInline(): void {
+		if (this.contentEl)
+			set(this.contentEl, { transform: "", transition: "", "--svaul-drawer-duration": "" }, true);
+		if (this.overlayEl)
+			set(this.overlayEl, { opacity: "", transition: "", "--svaul-drawer-duration": "" }, true);
 	}
 
 	#afterTransition(cb: () => void, ms: number = DURATION_MS): void {
@@ -743,75 +742,7 @@ export class Drawer {
 		return scalar * RELEASE.BASE_MS;
 	}
 
-	/** Duration for gliding a partially-closed drawer back open — proportional to how far it still
-	 *  has to travel, so a barely-closed drawer snaps open and a mostly-closed one eases. */
-	#reopenDuration(): number {
-		const dimension = this.#axisDimension();
-		const current = this.contentEl ? Math.abs(getTranslate(this.contentEl, this.direction) ?? 0) : 0;
-		const frac = dimension > 0 ? current / dimension : 1;
-		return clamp(DURATION_MS * frac, RELEASE.MIN_DURATION_MS, DURATION_MS);
-	}
-
-	/**
-	 * Animate the exit via an inline transform transition instead of the CSS exit keyframe.
-	 *
-	 * The transition would otherwise NOT animate from an at-rest drawer: reading the transform
-	 * (via `getTranslate`) forces a style flush that starts the `[data-state="closed"]` fill-forwards
-	 * exit keyframe, poisoning the transition's "from" value so it jumps straight to closed. So we
-	 * (1) pin the current offset with `transition:none` + `animation:none`, (2) force a reflow to
-	 * commit that as the transition's start frame, then (3) write the target + timed transition.
-	 * Returns the chosen duration so the caller can time the unmount to match.
-	 */
-	#fluidClose(): number {
-		const content = this.contentEl;
-		if (!content) return DURATION_MS;
-
-		const dirMul = directionMultiplier(this.direction);
-		const dimension = this.#axisDimension();
-		const current = getTranslate(content, this.direction) ?? 0;
-		const remaining = Math.max(dimension - Math.abs(current), 0);
-		const duration = this.#throwDuration(remaining, this.#closeVelocity ?? 0);
-
-		const overlay = this.overlayEl;
-		const overlayOpacity = overlay ? getComputedStyle(overlay).opacity : "1";
-
-		this.#isFluidClosing = true;
-		// 1. Pin the current position; kill the exit keyframe and any transition.
-		set(content, { animationName: "none", transition: "none", transform: this.#translate(current) });
-		if (overlay) set(overlay, { animationName: "none", transition: "none", opacity: overlayOpacity }, true);
-		// 2. Force a reflow so the pinned values become the transition's committed start frame.
-		void content.offsetHeight;
-		// 3. Animate to fully closed.
-		set(content, {
-			transform: this.#translate(dimension * dirMul),
-			transition: `transform ${duration}ms ${TRANSITION_EASE}`
-		});
-		if (overlay) set(overlay, { opacity: "0", transition: `opacity ${duration}ms ${TRANSITION_EASE}` }, true);
-		return duration;
-	}
-
-	/**
-	 * Fresh open: animate the content (and overlay) IN via a transform/opacity transition instead of
-	 * a CSS enter keyframe, so the open is interruptible and nothing depends on keyframes. Same
-	 * pin → reflow → transition dance as #fluidClose, in reverse. Snap drawers (which rest at a CSS
-	 * offset) and `disableAnimation` are skipped — they keep their instant/CSS positioning.
-	 */
-	#fluidEnter(el: HTMLElement): void {
-		if (!this.open || this.hasSnapPoints || this.disableAnimation) return;
-		const dirMul = directionMultiplier(this.direction);
-		const dimension = isVertical(this.direction) ? el.offsetHeight : el.offsetWidth;
-		const overlay = this.overlayEl;
-		const ease = `${TRANSITIONS.DURATION}s ${TRANSITION_EASE}`;
-		// 1. Pin fully closed, kill any keyframe, no transition.
-		set(el, { animationName: "none", transition: "none", transform: this.#translate(dimension * dirMul) });
-		if (overlay && this.shouldFade) set(overlay, { animationName: "none", transition: "none", opacity: "0" }, true);
-		// 2. Reflow commits the closed frame as the transition's start.
-		void el.offsetHeight;
-		// 3. Transition to open.
-		set(el, { transform: this.#translate(0), transition: `transform ${ease}` });
-		if (overlay && this.shouldFade) set(overlay, { opacity: "1", transition: `opacity ${ease}` }, true);
-	}
-	// -------------------------------------------------------------- end velocity-throw close
+	// ---------------------------------------------------------- end velocity-throw close
 
 	/** Record one drag sample and update the running per-move velocity. */
 	#recordSample(pos: number, time: number): void {
@@ -1142,18 +1073,14 @@ export class Drawer {
 		this.#resetDrawer();
 	}
 
-	/** Animate the drawer back to its fully-open resting position. */
+	/** Animate the drawer back to its fully-open resting position after a released-but-not-dismissed
+	 *  drag. Clearing the inline drag styles hands control back to the CSS transition, which returns
+	 *  the drawer to its open resting position (data-state="open" → translate 0). */
 	#resetDrawer(): void {
 		const content = this.contentEl;
 		if (!content) return;
-		set(content, {
-			transform: this.#translate(0),
-			transition: `transform ${TRANSITIONS.DURATION}s ${TRANSITION_EASE}`
-		});
-		set(this.overlayEl, {
-			transition: `opacity ${TRANSITIONS.DURATION}s ${TRANSITION_EASE}`,
-			opacity: "1"
-		});
+		set(content, { transform: "", transition: "", "--svaul-drawer-duration": "" }, true);
+		set(this.overlayEl, { opacity: "", transition: "", "--svaul-drawer-duration": "" }, true);
 		// Restore the scaled background to fully-open (reset is non-snap only).
 		if (this.scaleBackground && !this.noBodyStyles) {
 			setScaleBackground(0, this.#scaleOpts({ animate: true }));
@@ -1414,6 +1341,9 @@ export class Drawer {
 			[ATTR.snapPoints]: String(this.open && this.hasSnapPoints),
 			[ATTR.noAnimate]: this.disableAnimation ? "" : undefined,
 			"data-state": this.state,
+			// Present for the first painted frame after mount → holds the content at the closed offset
+			// so removing it releases the transform transition IN (see the CSS + #handleOpen).
+			"data-svaul-drawer-starting": this.#starting ? "" : undefined,
 			style:
 				`--svaul-drawer-depth: ${this.depth};` +
 				(this.hasSnapPoints ? ` --svaul-drawer-snap-point-height: ${this.#snap.snapPointHeight}px;` : ""),
@@ -1436,6 +1366,7 @@ export class Drawer {
 			[ATTR.snapPointsOverlay]: String(this.shouldFade),
 			[ATTR.noAnimate]: this.disableAnimation ? "" : undefined,
 			"data-state": this.state,
+			"data-svaul-drawer-starting": this.#starting ? "" : undefined,
 			"aria-hidden": true,
 			style: `--svaul-drawer-depth: ${this.depth};`,
 			onclick: this.#onOverlayClick
