@@ -354,7 +354,7 @@ export class Drawer {
 			const animate = !this.disableAnimation;
 			acquireScale(this.#scaleOpts({ animate }));
 			setScaleBackground(untrack(() => this.#restScaleProgress()), this.#scaleOpts({ animate }));
-			return () => revertScaleBackground(this.#scaleOpts({ animate: !this.disableAnimation }), this.noBodyStyles);
+			return () => revertScaleBackground(this.#scaleOpts({ animate: !this.disableAnimation }));
 		});
 
 		// Track the active snap point so the backdrop scales with how open the drawer is:
@@ -1267,6 +1267,24 @@ export class Drawer {
 			: `scale(${scale}) translate3d(${translate}px, 0, 0)`;
 	}
 
+	/** Publish the recede as CSS variables (+ the `data-svaul-drawer-nested` attribute) so the
+	 *  stylesheet composes it with the drawer's data-state transform — non-snap drawers only. */
+	#setNestedVars(content: HTMLElement, scale: number, translate: number, animate: boolean): void {
+		content.setAttribute(ATTR.nested, "");
+		const s = content.style;
+		s.setProperty("--svaul-nested-scale", String(scale));
+		s.setProperty("--svaul-nested-lift", `${translate}px`);
+		if (animate) s.removeProperty("--svaul-nested-duration");
+		else s.setProperty("--svaul-nested-duration", "0s");
+	}
+
+	#clearNestedVars(content: HTMLElement): void {
+		content.removeAttribute(ATTR.nested);
+		content.style.removeProperty("--svaul-nested-scale");
+		content.style.removeProperty("--svaul-nested-lift");
+		content.style.removeProperty("--svaul-nested-duration");
+	}
+
 	/** Step this drawer back by `levels` stacked descendants (0 = at rest). Each level
 	 *  compounds, so deeper ancestors recede further than nearer ones. */
 	#applyNestedRecede(levels: number): void {
@@ -1277,18 +1295,27 @@ export class Drawer {
 		const w = window.innerWidth;
 		const scale = levels > 0 ? (w - NESTED_DISPLACEMENT * levels) / w : 1;
 		const translate = levels > 0 ? -NESTED_DISPLACEMENT * levels : 0;
-		set(content, {
-			transition: `transform ${TRANSITIONS.DURATION}s ${TRANSITION_EASE}`,
-			transform: this.#scaleTransform(scale, translate)
-		});
 
-		// Back at rest: pin the drawer's own transform so it doesn't fight its snap/drag value.
-		if (levels === 0) {
-			this.#nestedTimer = setTimeout(() => {
-				const t = getTranslate(content, this.direction);
-				set(content, { transition: "none", transform: this.#translate(t ?? 0) });
-			}, DURATION_MS);
+		// A snap drawer positions itself with an engine-driven inline transform, so the recede has to be
+		// composed into that same inline transform (inline wins over the stylesheet). A non-snap drawer
+		// publishes the recede as variables and lets the CSS compose it with its data-state transform.
+		if (this.hasSnapPoints) {
+			set(content, {
+				transition: `transform ${TRANSITIONS.DURATION}s ${TRANSITION_EASE}`,
+				transform: this.#scaleTransform(scale, translate)
+			});
+			// Back at rest: pin the drawer's own transform so it doesn't fight its snap/drag value.
+			if (levels === 0) {
+				this.#nestedTimer = setTimeout(() => {
+					const t = getTranslate(content, this.direction);
+					set(content, { transition: "none", transform: this.#translate(t ?? 0) });
+				}, DURATION_MS);
+			}
+			return;
 		}
+
+		if (levels > 0) this.#setNestedVars(content, scale, translate, true);
+		else this.#clearNestedVars(content);
 	}
 
 	/** Called on the parent as a child drawer is dragged (`percentageDragged` 0→1). */
@@ -1299,7 +1326,11 @@ export class Drawer {
 		const initialScale = (window.innerWidth - NESTED_DISPLACEMENT) / window.innerWidth;
 		const scale = initialScale + percentageDragged * (1 - initialScale);
 		const translate = -NESTED_DISPLACEMENT + percentageDragged * NESTED_DISPLACEMENT;
-		set(content, { transition: "none", transform: this.#scaleTransform(scale, translate) });
+		if (this.hasSnapPoints) {
+			set(content, { transition: "none", transform: this.#scaleTransform(scale, translate) });
+		} else {
+			this.#setNestedVars(content, scale, translate, false);
+		}
 	}
 
 	/** Called on the parent when a child drag releases and the child stays open. */
@@ -1307,10 +1338,14 @@ export class Drawer {
 		const content = this.contentEl;
 		if (!content || !childOpen) return;
 		const scale = (window.innerWidth - NESTED_DISPLACEMENT) / window.innerWidth;
-		set(content, {
-			transition: `transform ${TRANSITIONS.DURATION}s ${TRANSITION_EASE}`,
-			transform: this.#scaleTransform(scale, -NESTED_DISPLACEMENT)
-		});
+		if (this.hasSnapPoints) {
+			set(content, {
+				transition: `transform ${TRANSITIONS.DURATION}s ${TRANSITION_EASE}`,
+				transform: this.#scaleTransform(scale, -NESTED_DISPLACEMENT)
+			});
+		} else {
+			this.#setNestedVars(content, scale, -NESTED_DISPLACEMENT, true);
+		}
 	}
 
 	// ---------------------------------------------------------------- attribute bags

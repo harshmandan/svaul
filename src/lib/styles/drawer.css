@@ -276,11 +276,63 @@
 	}
 }
 
+/* --------------------------------------------------- background scale (card stack) */
+/* JS publishes only *state* on the wrapper — --svaul-scale-open (0 = closed … 1 = fully open),
+   --svaul-scale-factor (the viewport-derived scale at full open, which calc can't compute itself),
+   --svaul-scale-levels (nesting depth, for the tint), and the drive direction. The visual mapping
+   lives here so it can be themed or replaced wholesale. Scale floor 0.6; tint steps 0.12 per nested
+   level down to 0.5. */
+[data-svaul-drawer-wrapper][data-svaul-drawer-scaled] {
+	overflow: hidden;
+	border-radius: calc(var(--svaul-scale-radius, 8px) * var(--svaul-scale-open, 0));
+	filter: brightness(max(0.5, calc(1 - 0.12 * max(0, calc(var(--svaul-scale-levels, 0) - 1)))));
+	transition:
+		transform var(--svaul-scale-duration, 0.5s) cubic-bezier(0.32, 0.72, 0, 1),
+		border-radius var(--svaul-scale-duration, 0.5s) cubic-bezier(0.32, 0.72, 0, 1),
+		filter var(--svaul-scale-duration, 0.5s) cubic-bezier(0.32, 0.72, 0, 1);
+}
+[data-svaul-drawer-wrapper][data-svaul-drawer-scaled][data-svaul-drawer-scale-direction="bottom"],
+[data-svaul-drawer-wrapper][data-svaul-drawer-scaled][data-svaul-drawer-scale-direction="top"] {
+	transform-origin: top;
+	transform: scale(max(0.6, calc(1 - (1 - var(--svaul-scale-factor, 1)) * var(--svaul-scale-open, 0))))
+		translate3d(0, calc(env(safe-area-inset-top) + 14px * var(--svaul-scale-open, 0)), 0);
+}
+[data-svaul-drawer-wrapper][data-svaul-drawer-scaled][data-svaul-drawer-scale-direction="left"],
+[data-svaul-drawer-wrapper][data-svaul-drawer-scaled][data-svaul-drawer-scale-direction="right"] {
+	transform-origin: left;
+	transform: scale(max(0.6, calc(1 - (1 - var(--svaul-scale-factor, 1)) * var(--svaul-scale-open, 0))))
+		translate3d(calc(14px * var(--svaul-scale-open, 0)), 0, 0);
+}
+
+/* --------------------------------------------------- nested recede */
+/* A parent drawer steps back behind its open descendants. JS publishes --svaul-nested-scale /
+   --svaul-nested-lift; this composes with the drawer's open (translate 0) resting position. Applies
+   only while open (a receded drawer is never in the closed/starting/swiping states above). */
+[data-svaul-drawer][data-svaul-drawer-nested] {
+	transition: transform var(--svaul-nested-duration, 0.5s) cubic-bezier(0.32, 0.72, 0, 1);
+}
+[data-svaul-drawer][data-svaul-drawer-nested][data-svaul-drawer-direction="bottom"],
+[data-svaul-drawer][data-svaul-drawer-nested][data-svaul-drawer-direction="top"] {
+	transform: scale(var(--svaul-nested-scale, 1)) translate3d(0, var(--svaul-nested-lift, 0px), 0);
+}
+[data-svaul-drawer][data-svaul-drawer-nested][data-svaul-drawer-direction="left"],
+[data-svaul-drawer][data-svaul-drawer-nested][data-svaul-drawer-direction="right"] {
+	transform: scale(var(--svaul-nested-scale, 1)) translate3d(var(--svaul-nested-lift, 0px), 0, 0);
+}
+
 @media (prefers-reduced-motion: reduce) {
 	[data-svaul-drawer],
-	[data-svaul-drawer-overlay] {
+	[data-svaul-drawer-overlay],
+	[data-svaul-drawer-wrapper][data-svaul-drawer-scaled] {
 		transition-duration: 0.01ms !important;
 	}
 }
 
 } /* @layer svaul */
+
+/* Page tint behind a scaled drawer. Unlayered (outside `@layer svaul`) so it reliably wins over a
+   plain `body { background }`. Opt in per drawer via `setBackgroundColorOnScale`; set the colour with
+   the `backgroundColor` prop, or override --svaul-scale-bg yourself. */
+body[data-svaul-drawer-scaled] {
+	background: var(--svaul-scale-bg, #000);
+}

@@ -89,6 +89,12 @@ export const ATTR = {
 	snapPoints: "data-svaul-drawer-snap-points",
 	snapPointsOverlay: "data-svaul-drawer-snap-points-overlay",
 	wrapper: "data-svaul-drawer-wrapper",
+	/** Present on the wrapper while it is scaled behind a drawer; drives the CSS card-stack rules. */
+	scaled: "data-svaul-drawer-scaled",
+	/** Direction of the drawer driving the wrapper scale (picks the lift axis / transform-origin). */
+	scaleDirection: "data-svaul-drawer-scale-direction",
+	/** Present on a drawer that is stepped back behind its open descendants (nested recede). */
+	nested: "data-svaul-drawer-nested",
 	noDrag: "data-svaul-drawer-no-drag",
 	noAnimate: "data-svaul-drawer-no-animate",
 	/** User-applied marker on non-drawer elements (e.g. a portaled popover/select) telling
