@@ -167,6 +167,9 @@ export class Drawer {
 
 	// Non-reactive physics scratch (vaul's `useRef`s — must not trigger re-render).
 	#pointerStart = 0; // position along the drag axis at press
+	/** Close-progress (0=open … dimension=closed) where the drag was grabbed. Non-zero when the drawer
+	 *  is caught mid-animation, so the drag continues from that point instead of jumping from 0. */
+	#grabCloseProgress = 0;
 	#pointerStartPoint: Point | null = null; // x/y at press (for swipe-intent)
 	#wasBeyondThePoint = false;
 	#lastPointerEvent: PointerEvent | null = null;
@@ -992,21 +995,27 @@ export class Drawer {
 		// Sample the axis position for instantaneous release-velocity measurement.
 		this.#recordSample(this.#axis(event), Date.now());
 
-		// Kill transitions for the duration of the drag — only needs doing once; it
-		// stays off until release re-applies them (and re-writing pollutes the cache).
+		// Kill transitions for the duration of the drag — only needs doing once. For a non-snap drawer,
+		// also catch it where it currently is: pin the live offset (so removing the transition doesn't
+		// snap it to the target) and remember that offset so the drag continues from the grab point.
+		// Zero for a normal at-rest drag; snap drawers track their own offset via the engine.
 		if (firstMove) {
-			set(content, { transition: "none" });
+			const grab = hasSnap ? 0 : (getTranslate(content, this.direction) ?? 0);
+			this.#grabCloseProgress = grab * dirMul;
+			set(content, hasSnap ? { transition: "none" } : { transform: this.#translate(grab), transition: "none" });
 			set(this.overlayEl, { transition: "none" });
 		}
 
 		const snapOffset = hasSnap ? this.#snap.onDrag(draggedDistance) : null;
 
-		// Without snap points, dragging *past* fully-open → rubber-band resistance.
-		if (isDraggingInDir && !hasSnap) {
-			const dampened = dampenValue(draggedDistance);
-			const translateValue = Math.min(dampened * -1, 0) * dirMul;
-			set(content, { transform: this.#translate(translateValue) });
-			return;
+		// Non-snap: resolve the target offset relative to the grab point. `closeProgress` is 0 at
+		// fully-open and `dimension` at closed; dragging past fully-open (negative) rubber-bands.
+		// percentageDragged is re-derived from the true position so the overlay/scale/nested track it.
+		let dragPx = 0;
+		if (!hasSnap) {
+			const closeProgress = this.#grabCloseProgress - draggedDistance;
+			dragPx = closeProgress < 0 ? -dampenValue(-closeProgress) * dirMul : closeProgress * dirMul;
+			percentageDragged = dimension > 0 ? Math.max(closeProgress, 0) / dimension : 0;
 		}
 
 		// Fade the overlay across the fade boundary (always, when no snap points).
@@ -1031,8 +1040,8 @@ export class Drawer {
 		// Displace the parent drawer (if nested) in step with this drag.
 		this.#parent?.onNestedDrag(percentageDragged);
 
-		// 1:1 finger follow toward the closed position (snap engine handles its own transform).
-		if (!hasSnap) set(content, { transform: this.#translate(absDragged * dirMul) });
+		// Follow the finger toward the closed position (snap engine handles its own transform).
+		if (!hasSnap) set(content, { transform: this.#translate(dragPx) });
 	}
 
 	/** pointerup / pointercancel — decide close vs reset from distance + velocity. */
