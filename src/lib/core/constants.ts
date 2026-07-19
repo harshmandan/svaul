@@ -18,11 +18,34 @@ export const TRANSITION_EASE = `cubic-bezier(${TRANSITIONS.EASE.join(",")})`;
 /** Release velocity (px/ms) above which a drag closes regardless of distance. */
 export const VELOCITY_THRESHOLD = 0.4;
 
+/**
+ * Velocity-scaled close ("throw") tuning. On a swipe release the close duration is the physical
+ * time to cover the remaining distance at the release speed (`remaining / velocity`), clamped, then
+ * RE-NORMALIZED to a 0.1–1 scalar and multiplied by `BASE_MS`. So a hard flick ≈ `MIN_SCALAR *
+ * BASE_MS` (40ms) and a gentle throw ≈ `MAX_SCALAR * BASE_MS` (400ms) — deliberately snappier than
+ * the default keyframe.
+ */
+export const RELEASE = {
+	/** Release speed (px/ms) is clamped to this band before a duration is derived. */
+	MIN_VELOCITY: 0.2,
+	MAX_VELOCITY: 4,
+	/** Physical `remaining / velocity` (ms) is clamped here before normalization. */
+	MIN_DURATION_MS: 80,
+	MAX_DURATION_MS: 360,
+	/** The clamped duration is remapped onto this scalar band … */
+	MIN_SCALAR: 0.1,
+	MAX_SCALAR: 1,
+	/** … then multiplied by this base to get the applied transition duration (ms). */
+	BASE_MS: 400,
+	/** Release velocity is sampled from the last ≤ this many ms of pointer motion (instantaneous,
+	 *  not averaged over the whole gesture) — so a slow drag ending in a flick reads as fast. */
+	SAMPLE_MAX_AGE_MS: 80,
+	/** Floor on the sample interval (ms) so a near-zero dt can't blow up the velocity. */
+	SAMPLE_MIN_DT_MS: 16
+} as const;
+
 /** Fraction of the drawer size that must be dragged past to close on release. */
 export const CLOSE_THRESHOLD = 0.25;
-
-/** After scrolling inner content, dragging the drawer is blocked for this long (ms). */
-export const SCROLL_LOCK_TIMEOUT = 250;
 
 /** Drawer corner radius (px) used by the background-scale "card stack" effect. */
 export const BORDER_RADIUS = 8;

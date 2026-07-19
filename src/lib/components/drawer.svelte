@@ -59,7 +59,6 @@
 		container?: HTMLElement | null;
 		closeThreshold?: number;
 		dragSensitivity?: number;
-		scrollLockTimeout?: number;
 		handleOnly?: boolean;
 		onlyPrimaryPointer?: boolean;
 		autoFocus?: boolean;
@@ -116,7 +115,6 @@
 		container,
 		closeThreshold,
 		dragSensitivity,
-		scrollLockTimeout,
 		handleOnly,
 		onlyPrimaryPointer,
 		autoFocus,
@@ -182,7 +180,6 @@
 		container: () => container,
 		closeThreshold: () => closeThreshold,
 		dragSensitivity: () => dragSensitivity,
-		scrollLockTimeout: () => scrollLockTimeout,
 		handleOnly: () => handleOnly,
 		onlyPrimaryPointer: () => onlyPrimaryPointer,
 		autoFocus: () => autoFocus,

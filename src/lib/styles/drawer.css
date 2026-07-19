@@ -189,6 +189,9 @@
 }
 [data-svaul-drawer-overlay][data-state="closed"] {
 	animation-name: svaul-drawer-fade-out;
+	/* While closing, let taps fall through to the page (e.g. the trigger) so the drawer can be
+	   re-opened mid-close instead of the fading overlay swallowing the click. */
+	pointer-events: none;
 }
 [data-svaul-drawer-overlay][data-svaul-drawer-snap-points="true"] {
 	opacity: 0;

@@ -7,7 +7,7 @@ import {
 	DRAG_CLASS,
 	JUST_RELEASED_TIMEOUT,
 	NESTED_DISPLACEMENT,
-	SCROLL_LOCK_TIMEOUT,
+	RELEASE,
 	SWIPE_START_THRESHOLD_MOUSE,
 	SWIPE_START_THRESHOLD_TOUCH,
 	TRANSITION_EASE,
@@ -73,8 +73,6 @@ export interface DrawerOptions {
 	 * (e.g. 2 ≈ vaul-svelte's feel — easier to flick away).
 	 */
 	dragSensitivity?: MaybeGetter<number | undefined>;
-	/** After scrolling inner content, block dragging for this long (ms). Default 250. */
-	scrollLockTimeout?: MaybeGetter<number | undefined>;
 	/** Only the handle initiates a drag (content body scrolls instead). */
 	handleOnly?: MaybeGetter<boolean | undefined>;
 	/** Only start a drag from the primary pointer/button (ignore right/middle click). */
@@ -110,6 +108,9 @@ export interface DrawerOptions {
 }
 
 const DURATION_MS = TRANSITIONS.DURATION * 1000;
+
+/** Clamp `n` into `[lo, hi]`. */
+const clamp = (n: number, lo: number, hi: number): number => Math.min(Math.max(n, lo), hi);
 
 /** Reactive set of currently-open drawers — lets each one compute its card-stack depth. */
 const openDrawers = new SvelteSet<Drawer>();
@@ -152,6 +153,18 @@ export class Drawer {
 	};
 	#closeResetTimer: ReturnType<typeof setTimeout> | undefined;
 
+	// --- velocity-throw close scratch ---
+	/** Instantaneous release speed (px/ms) handed from onRelease to the close handler when the
+	 *  close originated from a swipe. Null for non-gesture closes (overlay click, Escape,
+	 *  programmatic) → those fall back to the default keyframe close. */
+	#closeVelocity: number | null = null;
+	/** True while an inline transform-transition close is animating (so a reopen can interrupt it). */
+	#isFluidClosing = false;
+	/** Last recorded drag sample `{pos, time}` along the axis, for instantaneous release velocity. */
+	#lastSample: { pos: number; time: number } | null = null;
+	/** Velocity (px/ms) between the two most recent drag samples — the release-velocity fallback. */
+	#lastMoveVelocity = 0;
+
 	// Non-reactive physics scratch (vaul's `useRef`s — must not trigger re-render).
 	#pointerStart = 0; // position along the drag axis at press
 	#pointerStartPoint: Point | null = null; // x/y at press (for swipe-intent)
@@ -162,8 +175,6 @@ export class Drawer {
 	#isAllowedToDrag = false;
 	#activePointerId: number | null = null; // the finger that owns the current gesture
 	#movedThisGesture = false; // distinguishes a handle tap from a handle drag
-	#lastTimeDragPrevented = 0;
-	#openTime = 0;
 	#drawerHeight = 0;
 	#drawerWidth = 0;
 	#justReleasedTimer: ReturnType<typeof setTimeout> | undefined;
@@ -181,7 +192,26 @@ export class Drawer {
 
 	// Stable ref attachments (created once → spread without re-running on every render).
 	#triggerRef = this.#makeRef((el) => (this.triggerEl = el));
-	#contentRef = this.#makeRef((el) => (this.contentEl = el));
+	#contentRef = {
+		[createAttachmentKey()]: (node: Element) => {
+			const el = node as HTMLElement;
+			this.contentEl = el;
+			// Claim the touch drag. Transforming the content under the finger during a touch drag makes
+			// Chrome/Android drop the synthesized click on the NEXT tap (so a drawer swipe-dismiss left
+			// the trigger needing a second tap). A non-passive `touchmove` preventDefault WHILE actively
+			// dragging tells the browser we own the gesture, which stops it. Gated on the *committed*
+			// drag (`#isAllowedToDrag`), never plain `isDragging`, so it never blocks scrolling inner
+			// content. Must be a manual listener — Svelte's declarative `ontouchmove` is passive.
+			const onTouchMove = (e: TouchEvent) => {
+				if (this.#isAllowedToDrag) e.preventDefault();
+			};
+			el.addEventListener("touchmove", onTouchMove, { passive: false });
+			return () => {
+				el.removeEventListener("touchmove", onTouchMove);
+				this.contentEl = null;
+			};
+		}
+	};
 	#overlayRef = this.#makeRef((el) => (this.overlayEl = el));
 
 	constructor(props: DrawerOptions = {}) {
@@ -531,9 +561,6 @@ export class Drawer {
 	get closeThreshold(): number {
 		return extract(this.#props.closeThreshold, CLOSE_THRESHOLD);
 	}
-	get scrollLockTimeout(): number {
-		return extract(this.#props.scrollLockTimeout, SCROLL_LOCK_TIMEOUT);
-	}
 	get handleOnly(): boolean {
 		return extract(this.#props.handleOnly, false);
 	}
@@ -606,6 +633,35 @@ export class Drawer {
 			clearTimeout(this.#closeResetTimer);
 			this.#closeResetTimer = undefined;
 		}
+		// A stale close-velocity from a blocked/aborted close must never leak into the next close.
+		this.#closeVelocity = null;
+		// Interrupt: a reopen landed while a throw close was still animating. Glide back to open
+		// from wherever the drawer currently is — a live transition reverses from the current
+		// computed transform, so this is continuous (no keyframe restart, no waiting out the exit).
+		if (this.#isFluidClosing && this.contentEl) {
+			this.#isFluidClosing = false;
+			this.hasBeenOpened = true;
+			this.#present = true;
+			const duration = this.#reopenDuration();
+			set(this.contentEl, {
+				animationName: "none",
+				transform: this.#translate(0),
+				transition: `transform ${duration}ms ${TRANSITION_EASE}`
+			});
+			set(this.overlayEl, {
+				animationName: "none",
+				opacity: "1",
+				transition: `opacity ${duration}ms ${TRANSITION_EASE}`
+			});
+			this.#afterTransition(() => {
+				// Revert to the CSS-driven state so a later close can play the exit keyframe again
+				// (the glide left `animation-name:none` inline).
+				this.#clearDragStyles();
+				this.#props.onOpenChangeComplete?.(true);
+			}, duration);
+			return;
+		}
+		this.#isFluidClosing = false;
 		// A drag-close leaves an inline transform + `transition: none` on the content (and a
 		// faded opacity on the overlay). Reopening within the exit window — or every reopen
 		// with `keepMounted` — would replay the enter keyframe and then, since keyframe fill is
@@ -614,25 +670,34 @@ export class Drawer {
 		this.#clearDragStyles();
 		this.hasBeenOpened = true;
 		this.#present = true;
-		this.#openTime = Date.now();
 		this.#afterTransition(() => this.#props.onOpenChangeComplete?.(true));
 	}
 
-	/** Remove any inline transform/opacity/transition a drag left behind (reverting to CSS). */
+	/** Remove any inline transform/opacity/transition a drag (or fluid close) left behind,
+	 *  reverting to the CSS-driven state — including `animationName` so the enter keyframe
+	 *  can play again after a fluid-close cycle. */
 	#clearDragStyles(): void {
-		if (this.contentEl) set(this.contentEl, { transform: "", transition: "" }, true);
-		if (this.overlayEl) set(this.overlayEl, { opacity: "", transition: "" }, true);
+		if (this.contentEl) set(this.contentEl, { transform: "", transition: "", animationName: "" }, true);
+		if (this.overlayEl) set(this.overlayEl, { opacity: "", transition: "", animationName: "" }, true);
 	}
 
 	#handleClose(): void {
 		if (!this.#present) return;
+		// Throw ONLY on a swipe release (velocity captured). Outside-press / Escape / programmatic
+		// closes have no velocity and fall through to the default CSS exit keyframe. Snap drawers keep
+		// the classic path (the snap engine already handles their velocity).
+		const throwing =
+			this.#closeVelocity != null && !this.hasSnapPoints && !this.disableAnimation;
+		const duration = throwing ? this.#fluidClose() : DURATION_MS;
+		this.#closeVelocity = null;
 		this.#afterTransition(() => {
+			this.#isFluidClosing = false;
 			this.#present = false;
 			this.#props.onOpenChangeComplete?.(false);
-		});
+		}, duration);
 	}
 
-	#afterTransition(cb: () => void): void {
+	#afterTransition(cb: () => void, ms: number = DURATION_MS): void {
 		if (this.#transitionTimer) clearTimeout(this.#transitionTimer);
 		// No animation → mount/unmount immediately instead of waiting out the transition.
 		if (this.disableAnimation) {
@@ -640,7 +705,111 @@ export class Drawer {
 			return;
 		}
 		if (typeof setTimeout === "undefined") return;
-		this.#transitionTimer = setTimeout(cb, DURATION_MS);
+		this.#transitionTimer = setTimeout(cb, ms);
+	}
+
+	// ---------------------------------------------------------------- velocity-throw close
+	// The swipe-release close (and its interruptible reopen): the close duration is scaled by the
+	// release velocity, and the exit is an inline transform transition (not the CSS keyframe) so a
+	// reopen can reverse it mid-flight.
+
+	/** The drawer's live size along the drag axis (px). */
+	#axisDimension(): number {
+		const content = this.contentEl;
+		if (!content) return 0;
+		return isVertical(this.direction) ? content.offsetHeight : content.offsetWidth;
+	}
+
+	/**
+	 * Release-duration model: clamp the physical `remaining / velocity` time (distance ÷ speed),
+	 * re-normalize it onto a 0.1–1 scalar, and multiply by the base — so a hard flick ≈ 40ms and a
+	 * gentle throw ≈ 400ms. Returns the applied transition duration (ms).
+	 */
+	#throwDuration(remaining: number, velocity: number): number {
+		const v = Math.abs(velocity);
+		if (!v) return DURATION_MS;
+		const clampedV = clamp(v, RELEASE.MIN_VELOCITY, RELEASE.MAX_VELOCITY);
+		const durationMs = clamp(remaining / clampedV, RELEASE.MIN_DURATION_MS, RELEASE.MAX_DURATION_MS);
+		const normalized = (durationMs - RELEASE.MIN_DURATION_MS) / (RELEASE.MAX_DURATION_MS - RELEASE.MIN_DURATION_MS);
+		const scalar = clamp(
+			RELEASE.MIN_SCALAR + normalized * (RELEASE.MAX_SCALAR - RELEASE.MIN_SCALAR),
+			RELEASE.MIN_SCALAR,
+			RELEASE.MAX_SCALAR
+		);
+		return scalar * RELEASE.BASE_MS;
+	}
+
+	/** Duration for gliding a partially-closed drawer back open — proportional to how far it still
+	 *  has to travel, so a barely-closed drawer snaps open and a mostly-closed one eases. */
+	#reopenDuration(): number {
+		const dimension = this.#axisDimension();
+		const current = this.contentEl ? Math.abs(getTranslate(this.contentEl, this.direction) ?? 0) : 0;
+		const frac = dimension > 0 ? current / dimension : 1;
+		return clamp(DURATION_MS * frac, RELEASE.MIN_DURATION_MS, DURATION_MS);
+	}
+
+	/**
+	 * Animate the exit via an inline transform transition instead of the CSS exit keyframe.
+	 *
+	 * The transition would otherwise NOT animate from an at-rest drawer: reading the transform
+	 * (via `getTranslate`) forces a style flush that starts the `[data-state="closed"]` fill-forwards
+	 * exit keyframe, poisoning the transition's "from" value so it jumps straight to closed. So we
+	 * (1) pin the current offset with `transition:none` + `animation:none`, (2) force a reflow to
+	 * commit that as the transition's start frame, then (3) write the target + timed transition.
+	 * Returns the chosen duration so the caller can time the unmount to match.
+	 */
+	#fluidClose(): number {
+		const content = this.contentEl;
+		if (!content) return DURATION_MS;
+
+		const dirMul = directionMultiplier(this.direction);
+		const dimension = this.#axisDimension();
+		const current = getTranslate(content, this.direction) ?? 0;
+		const remaining = Math.max(dimension - Math.abs(current), 0);
+		const duration = this.#throwDuration(remaining, this.#closeVelocity ?? 0);
+
+		const overlay = this.overlayEl;
+		const overlayOpacity = overlay ? getComputedStyle(overlay).opacity : "1";
+
+		this.#isFluidClosing = true;
+		// 1. Pin the current position; kill the exit keyframe and any transition.
+		set(content, { animationName: "none", transition: "none", transform: this.#translate(current) });
+		if (overlay) set(overlay, { animationName: "none", transition: "none", opacity: overlayOpacity }, true);
+		// 2. Force a reflow so the pinned values become the transition's committed start frame.
+		void content.offsetHeight;
+		// 3. Animate to fully closed.
+		set(content, {
+			transform: this.#translate(dimension * dirMul),
+			transition: `transform ${duration}ms ${TRANSITION_EASE}`
+		});
+		if (overlay) set(overlay, { opacity: "0", transition: `opacity ${duration}ms ${TRANSITION_EASE}` }, true);
+		return duration;
+	}
+	// -------------------------------------------------------------- end velocity-throw close
+
+	/** Record one drag sample and update the running per-move velocity. */
+	#recordSample(pos: number, time: number): void {
+		const last = this.#lastSample;
+		if (last && time > last.time) {
+			const dt = Math.max(time - last.time, RELEASE.SAMPLE_MIN_DT_MS);
+			this.#lastMoveVelocity = (pos - last.pos) / dt;
+		}
+		this.#lastSample = { pos, time };
+	}
+
+	/**
+	 * Instantaneous release speed (px/ms), magnitude only. Derived from the final ≤ SAMPLE_MAX_AGE_MS
+	 * of motion (so a slow drag ending in a flick reads fast), falling back to the last per-move
+	 * velocity when the final sample is stale (finger paused before releasing).
+	 */
+	#releaseVelocity(pos: number, time: number): number {
+		const last = this.#lastSample;
+		if (last && time >= last.time && time - last.time <= RELEASE.SAMPLE_MAX_AGE_MS) {
+			const dt = Math.max(time - last.time, RELEASE.SAMPLE_MIN_DT_MS);
+			const v = (pos - last.pos) / dt;
+			if (v !== 0) return Math.abs(v);
+		}
+		return Math.abs(this.#lastMoveVelocity);
 	}
 
 	// ---------------------------------------------------------------- drag physics
@@ -718,6 +887,9 @@ export class Drawer {
 		// Keep receiving moves even when the pointer leaves the drawer.
 		(event.target as HTMLElement).setPointerCapture?.(event.pointerId);
 		this.#pointerStart = this.#axis(event);
+		// Seed the velocity sampler at the press point.
+		this.#lastSample = { pos: this.#pointerStart, time: this.#dragStartTime };
+		this.#lastMoveVelocity = 0;
 	}
 
 	/** pointermove — gate on swipe intent, then drag. */
@@ -794,6 +966,8 @@ export class Drawer {
 		content.classList.add(DRAG_CLASS);
 		this.#isAllowedToDrag = true;
 		this.#movedThisGesture = true;
+		// Sample the axis position for instantaneous release-velocity measurement.
+		this.#recordSample(this.#axis(event), Date.now());
 
 		// Kill transitions for the duration of the drag — only needs doing once; it
 		// stays off until release re-applies them (and re-writing pollutes the cache).
@@ -862,13 +1036,13 @@ export class Drawer {
 			return;
 		if (!this.#dragStartTime) return;
 
-		const timeTaken = this.#dragEndTime - this.#dragStartTime;
-		// Velocity is measured from the *real* finger movement; only the displacement fed
-		// to the position/threshold logic is amplified by dragSensitivity (so a high
-		// sensitivity makes the drawer move further, without collapsing the flick thresholds).
+		// Velocity is the *instantaneous* release speed from the last ≤80ms of real finger movement —
+		// not an average over the whole gesture, so a slow drag ending in a flick still reads fast.
+		// Only the displacement fed to the position/threshold logic is amplified by dragSensitivity
+		// (so a high sensitivity moves the drawer further without collapsing thresholds).
 		const rawDist = this.#pointerStart - this.#axis(event);
 		const distMoved = rawDist * this.dragSensitivity;
-		const velocity = timeTaken > 0 ? Math.abs(rawDist) / timeTaken : 0;
+		const velocity = this.#releaseVelocity(this.#axis(event), this.#dragEndTime);
 
 		if (velocity > 0.05) {
 			this.justReleased = true;
@@ -910,19 +1084,23 @@ export class Drawer {
 			return;
 		}
 
-		// Fast flick → close.
+		// Fast flick → close. Arm the velocity throw (release speed always clears the throw floor here).
 		if (velocity > VELOCITY_THRESHOLD) {
+			this.#closeVelocity = velocity;
 			this.closeDrawer();
 			this.#props.onRelease?.(event, false);
 			return;
 		}
 
-		// Past the close threshold → close.
+		// Past the close threshold → close. Arm the throw only if there's still enough release speed
+		// to warrant it (above the MIN_VELOCITY floor); a dead-slow drag past the threshold closes
+		// with the default keyframe instead.
 		const rect = content.getBoundingClientRect();
 		const visibleH = Math.min(rect.height, window.innerHeight);
 		const visibleW = Math.min(rect.width, window.innerWidth);
 		const horizontal = this.direction === "left" || this.direction === "right";
 		if (Math.abs(swipeAmount) >= (horizontal ? visibleW : visibleH) * this.closeThreshold) {
+			if (velocity > RELEASE.MIN_VELOCITY) this.#closeVelocity = velocity;
 			this.closeDrawer();
 			this.#props.onRelease?.(event, false);
 			return;
@@ -960,14 +1138,18 @@ export class Drawer {
 		this.#dragEndTime = Date.now();
 	}
 
-	/** Scroll-vs-drag gate, ported from vaul's `shouldDrag`. */
+	/**
+	 * Scroll-vs-drag gate (adapted from vaul's `shouldDrag`, minus the time-based locks). The
+	 * decision is purely structural — there is NO post-open timer and no post-scroll debounce: a drag
+	 * starts immediately unless the pointer is over something that can still scroll toward the close
+	 * edge.
+	 */
 	#shouldDrag(target: EventTarget | null, isDraggingInDirection: boolean): boolean {
 		let element = target as HTMLElement | null;
 		if (!element) return true;
 
 		const highlightedText = window.getSelection()?.toString();
 		const swipeAmount = this.contentEl ? getTranslate(this.contentEl, this.direction) : null;
-		const now = Date.now();
 
 		if (element.tagName === "SELECT") return false;
 		if (element.hasAttribute?.(ATTR.noDrag) || element.closest?.(`[${ATTR.noDrag}]`)) return false;
@@ -977,9 +1159,6 @@ export class Drawer {
 		// close edge; otherwise drag.
 		if (this.direction === "right" || this.direction === "left") return this.#climbAllowsDrag(target);
 
-		// Allow scrolling during the open animation.
-		if (this.#openTime && now - this.#openTime < 500) return false;
-
 		// Already mid-drag in the open direction → keep dragging.
 		if (swipeAmount !== null) {
 			if (this.direction === "bottom" ? swipeAmount > 0 : swipeAmount < 0) return true;
@@ -987,20 +1166,8 @@ export class Drawer {
 
 		if (highlightedText && highlightedText.length > 0) return false;
 
-		// Recently scrolled inner content → don't hijack as a drag.
-		if (
-			this.#lastTimeDragPrevented &&
-			now - this.#lastTimeDragPrevented < this.scrollLockTimeout &&
-			swipeAmount === 0
-		) {
-			this.#lastTimeDragPrevented = now;
-			return false;
-		}
-
-		if (isDraggingInDirection) {
-			this.#lastTimeDragPrevented = now;
-			return false;
-		}
+		// Dragging further past fully-open (overdrag) isn't a dismiss gesture — let it scroll.
+		if (isDraggingInDirection) return false;
 
 		return this.#climbAllowsDrag(target);
 	}
@@ -1013,10 +1180,7 @@ export class Drawer {
 	#climbAllowsDrag(target: EventTarget | null): boolean {
 		let element = target as HTMLElement | null;
 		while (element) {
-			if (this.#canScrollInCloseDir(element)) {
-				this.#lastTimeDragPrevented = Date.now();
-				return false;
-			}
+			if (this.#canScrollInCloseDir(element)) return false;
 			if (element === this.contentEl || element.getAttribute?.("role") === "dialog") return true;
 			element = element.parentNode as HTMLElement | null;
 		}
