@@ -186,6 +186,7 @@ export class Drawer {
 	#isAllowedToDrag = false;
 	#activePointerId: number | null = null; // the finger that owns the current gesture
 	#movedThisGesture = false; // distinguishes a handle tap from a handle drag
+	#pressStartedInsideContent = false; // gates the modal backdrop against inside-started drags
 	#drawerHeight = 0;
 	#drawerWidth = 0;
 	#justReleasedTimer: ReturnType<typeof setTimeout> | undefined;
@@ -317,14 +318,22 @@ export class Drawer {
 			const entry = { close: () => this.closeDrawer(), dismissible: () => this.dismissible };
 			const cleanups = [pushEscape(entry)];
 
-			// Non-modal drawers have no overlay to catch outside clicks, so do it here.
-			if (!this.modal && typeof document !== "undefined") {
+			// One capture-phase pointerdown listener records where each click sequence *starts* (so the
+			// modal backdrop can ignore a drag that began inside the drawer) and, for non-modal drawers
+			// which have no overlay, doubles as the outside-press dismissal.
+			if (typeof document !== "undefined") {
 				const onDown = (event: PointerEvent) => {
 					const content = this.contentEl;
+					const path = event.composedPath();
+					// composedPath pierces shadow DOM. Remember whether the press began inside the drawer.
+					this.#pressStartedInsideContent = !!content && path.includes(content);
+					if (this.modal) return;
+					// Non-modal outside-press dismissal: primary button only (a right/middle click must
+					// not close), and treat the drawer, its trigger, and any [data-svaul-ignore] layer
+					// (e.g. a portaled popover) as "inside".
+					if (event.button !== 0) return;
 					if (!content) return;
-					// composedPath pierces shadow DOM; treat the drawer, its trigger, and any
-					// [data-svaul-ignore] layer (e.g. a portaled popover) as "inside".
-					for (const node of event.composedPath()) {
+					for (const node of path) {
 						if (node === content || node === this.triggerEl) return;
 						if (node instanceof Element && node.closest(`[${ATTR.ignore}]`)) return;
 					}
@@ -1340,6 +1349,9 @@ export class Drawer {
 	};
 	#onOverlayClick = (event: MouseEvent) => {
 		event.stopPropagation();
+		// Only a press that began on the backdrop dismisses. A drag that started inside the drawer
+		// (e.g. selecting text) and released over the backdrop must not close it.
+		if (this.#pressStartedInsideContent) return;
 		this.closeDrawer();
 	};
 	#onCloseClick = () => this.closeDrawer(true);
