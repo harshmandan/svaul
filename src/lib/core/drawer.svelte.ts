@@ -158,9 +158,16 @@ export class Drawer {
 	 *  close originated from a swipe. Null for non-gesture closes (overlay click, Escape,
 	 *  programmatic) → those use the default close duration. */
 	#closeVelocity: number | null = null;
+	/** The drawer's offset (px) at the moment of a swipe release, captured before the swiping state is
+	 *  dropped — feeds the throw's remaining-distance math (which #handleClose can no longer read live). */
+	#closeFromPx = 0;
 	/** True for the first painted frame after a fresh mount: holds the content at the closed offset
 	 *  (via `data-svaul-drawer-starting`) so the transform transition plays IN when it's removed. */
 	#starting = $state(false);
+	/** True while a non-snap drag is in progress (adds `data-svaul-drawer-swiping`): the CSS follows
+	 *  the live `--svaul-drawer-swipe`/`--svaul-drawer-swipe-progress` variables with the transition
+	 *  frozen, so the drawer tracks the finger 1:1. Dropped on release → CSS transitions to the target. */
+	#swiping = $state(false);
 	/** Last recorded drag sample `{pos, time}` along the axis, for instantaneous release velocity. */
 	#lastSample: { pos: number; time: number } | null = null;
 	/** Velocity (px/ms) between the two most recent drag samples — the release-velocity fallback. */
@@ -675,16 +682,20 @@ export class Drawer {
 		// the exit from the live position; overlay/Escape/programmatic closes just use the default.
 		let ms = DURATION_MS;
 		if (this.#closeVelocity != null && !this.hasSnapPoints && !this.disableAnimation && content) {
-			const current = Math.abs(getTranslate(content, this.direction) ?? 0);
+			// Use the release offset captured in onRelease — by now the swiping state is gone and the
+			// content is already transitioning toward closed, so a live read wouldn't be the grab point.
+			const current = Math.abs(this.#closeFromPx);
 			ms = this.#throwDuration(Math.max(this.#axisDimension() - current, 0), this.#closeVelocity);
 			set(content, { "--svaul-drawer-duration": `${ms}ms` });
 			set(overlay, { "--svaul-drawer-duration": `${ms}ms` }, true);
 		}
 		this.#closeVelocity = null;
-		// A drag left an inline transform (+ transition:none); remove them so the CSS closed transform
-		// and transition take over from the live position. A non-drag close has nothing to clear.
-		if (content) set(content, { transform: "", transition: "" }, true);
-		if (overlay) set(overlay, { opacity: "", transition: "" }, true);
+		// A snap drag leaves an inline transform (+ transition:none); a non-snap swipe leaves the swipe
+		// variables. Clear both so the CSS closed transform + transition drive the exit from the live
+		// position. A non-drag close has nothing to clear.
+		if (content)
+			set(content, { transform: "", transition: "", "--svaul-drawer-swipe": "" }, true);
+		if (overlay) set(overlay, { opacity: "", transition: "", "--svaul-drawer-swipe-progress": "" }, true);
 		this.#afterTransition(() => {
 			this.#present = false;
 			this.#props.onOpenChangeComplete?.(false);
@@ -695,9 +706,17 @@ export class Drawer {
 	 *  transition drives the motion purely from the data attributes. */
 	#resetInline(): void {
 		if (this.contentEl)
-			set(this.contentEl, { transform: "", transition: "", "--svaul-drawer-duration": "" }, true);
+			set(
+				this.contentEl,
+				{ transform: "", transition: "", "--svaul-drawer-duration": "", "--svaul-drawer-swipe": "" },
+				true
+			);
 		if (this.overlayEl)
-			set(this.overlayEl, { opacity: "", transition: "", "--svaul-drawer-duration": "" }, true);
+			set(
+				this.overlayEl,
+				{ opacity: "", transition: "", "--svaul-drawer-duration": "", "--svaul-drawer-swipe-progress": "" },
+				true
+			);
 	}
 
 	#afterTransition(cb: () => void, ms: number = DURATION_MS): void {
@@ -926,15 +945,19 @@ export class Drawer {
 		// Sample the axis position for instantaneous release-velocity measurement.
 		this.#recordSample(this.#axis(event), Date.now());
 
-		// Kill transitions for the duration of the drag — only needs doing once. For a non-snap drawer,
-		// also catch it where it currently is: pin the live offset (so removing the transition doesn't
-		// snap it to the target) and remember that offset so the drag continues from the grab point.
-		// Zero for a normal at-rest drag; snap drawers track their own offset via the engine.
+		// First move: freeze the transition and, for a non-snap drawer, hand the drag to the CSS
+		// variables via `data-svaul-drawer-swiping`. Remember the grab offset (the drawer's live
+		// position) so the drag continues from that point — this is what makes a drawer caught
+		// mid-animation follow the finger from where it was, not jump from 0. Snap drawers keep the
+		// engine's own inline transform, so only freeze their transition here.
 		if (firstMove) {
-			const grab = hasSnap ? 0 : (getTranslate(content, this.direction) ?? 0);
-			this.#grabCloseProgress = grab * dirMul;
-			set(content, hasSnap ? { transition: "none" } : { transform: this.#translate(grab), transition: "none" });
-			set(this.overlayEl, { transition: "none" });
+			if (hasSnap) {
+				set(content, { transition: "none" });
+				set(this.overlayEl, { transition: "none" });
+			} else {
+				this.#grabCloseProgress = (getTranslate(content, this.direction) ?? 0) * dirMul;
+				this.#swiping = true;
+			}
 		}
 
 		const snapOffset = hasSnap ? this.#snap.onDrag(draggedDistance) : null;
@@ -954,7 +977,10 @@ export class Drawer {
 		if (this.shouldFade || atFadeBoundary) {
 			this.#props.onDrag?.(event, percentageDragged);
 			if (this.overlayEl) {
-				set(this.overlayEl, { opacity: String(1 - percentageDragged), transition: "none" }, true);
+				// Non-snap fades via the progress variable (data-svaul-drawer-swiping applies it); snap
+				// keeps its own inline opacity.
+				if (hasSnap) set(this.overlayEl, { opacity: String(1 - percentageDragged), transition: "none" }, true);
+				else set(this.overlayEl, { "--svaul-drawer-swipe-progress": String(1 - percentageDragged) }, true);
 			}
 		}
 
@@ -971,8 +997,8 @@ export class Drawer {
 		// Displace the parent drawer (if nested) in step with this drag.
 		this.#parent?.onNestedDrag(percentageDragged);
 
-		// Follow the finger toward the closed position (snap engine handles its own transform).
-		if (!hasSnap) set(content, { transform: this.#translate(dragPx) });
+		// Follow the finger via the CSS variable (snap engine handles its own inline transform).
+		if (!hasSnap) set(content, { "--svaul-drawer-swipe": `${dragPx}px` }, true);
 	}
 
 	/** pointerup / pointercancel — decide close vs reset from distance + velocity. */
@@ -989,12 +1015,18 @@ export class Drawer {
 		this.#isAllowedToDrag = false;
 		this.#activePointerId = null;
 		this.#dragEndTime = Date.now();
+		// Drop the swiping state so the CSS transition takes back over toward the data-state target
+		// (open on a snap-back, closed on a dismiss). Must happen even on the early returns below.
+		this.#swiping = false;
 
 		const content = this.contentEl;
 		if (!content) return;
 		content.classList.remove(DRAG_CLASS);
 
+		// Read while the swiping state is still applied to the DOM (the #swiping = false above only takes
+		// effect on the next flush), so this is the true live offset — remember it for the throw math.
 		const swipeAmount = getTranslate(content, this.direction);
+		this.#closeFromPx = swipeAmount ?? 0;
 		if (!event || !this.#shouldDrag(event.target, false) || !swipeAmount || Number.isNaN(swipeAmount))
 			return;
 		if (!this.#dragStartTime) return;
@@ -1079,8 +1111,12 @@ export class Drawer {
 	#resetDrawer(): void {
 		const content = this.contentEl;
 		if (!content) return;
-		set(content, { transform: "", transition: "", "--svaul-drawer-duration": "" }, true);
-		set(this.overlayEl, { opacity: "", transition: "", "--svaul-drawer-duration": "" }, true);
+		set(content, { transform: "", transition: "", "--svaul-drawer-duration": "", "--svaul-drawer-swipe": "" }, true);
+		set(
+			this.overlayEl,
+			{ opacity: "", transition: "", "--svaul-drawer-duration": "", "--svaul-drawer-swipe-progress": "" },
+			true
+		);
 		// Restore the scaled background to fully-open (reset is non-snap only).
 		if (this.scaleBackground && !this.noBodyStyles) {
 			setScaleBackground(0, this.#scaleOpts({ animate: true }));
@@ -1094,6 +1130,7 @@ export class Drawer {
 		this.contentEl.classList.remove(DRAG_CLASS);
 		this.#isAllowedToDrag = false;
 		this.isDragging = false;
+		this.#swiping = false;
 		this.#dragEndTime = Date.now();
 	}
 
@@ -1344,6 +1381,8 @@ export class Drawer {
 			// Present for the first painted frame after mount → holds the content at the closed offset
 			// so removing it releases the transform transition IN (see the CSS + #handleOpen).
 			"data-svaul-drawer-starting": this.#starting ? "" : undefined,
+			// Present while dragging → the CSS follows --svaul-drawer-swipe with the transition frozen.
+			"data-svaul-drawer-swiping": this.#swiping ? "" : undefined,
 			style:
 				`--svaul-drawer-depth: ${this.depth};` +
 				(this.hasSnapPoints ? ` --svaul-drawer-snap-point-height: ${this.#snap.snapPointHeight}px;` : ""),
@@ -1367,6 +1406,7 @@ export class Drawer {
 			[ATTR.noAnimate]: this.disableAnimation ? "" : undefined,
 			"data-state": this.state,
 			"data-svaul-drawer-starting": this.#starting ? "" : undefined,
+			"data-svaul-drawer-swiping": this.#swiping ? "" : undefined,
 			"aria-hidden": true,
 			style: `--svaul-drawer-depth: ${this.depth};`,
 			onclick: this.#onOverlayClick

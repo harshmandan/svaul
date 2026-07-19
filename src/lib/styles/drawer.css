@@ -105,6 +105,29 @@
 	transform: translate3d(var(--svaul-drawer-initial-transform, 100%), 0, 0);
 }
 
+/*
+ * While a (non-snap) drag is in progress the drawer follows the finger declaratively: JS writes the
+ * live offset into --svaul-drawer-swipe and the fade into --svaul-drawer-swipe-progress, and the
+ * `data-svaul-drawer-swiping` attribute applies them with the transition frozen so it tracks 1:1.
+ * On release the attribute is dropped → the transform reverts to the data-state target, which the
+ * transition then animates to.
+ */
+[data-svaul-drawer][data-svaul-drawer-swiping],
+[data-svaul-drawer-overlay][data-svaul-drawer-swiping] {
+	transition-duration: 0s;
+}
+[data-svaul-drawer][data-svaul-drawer-swiping][data-svaul-drawer-direction="bottom"],
+[data-svaul-drawer][data-svaul-drawer-swiping][data-svaul-drawer-direction="top"] {
+	transform: translate3d(0, var(--svaul-drawer-swipe, 0), 0);
+}
+[data-svaul-drawer][data-svaul-drawer-swiping][data-svaul-drawer-direction="left"],
+[data-svaul-drawer][data-svaul-drawer-swiping][data-svaul-drawer-direction="right"] {
+	transform: translate3d(var(--svaul-drawer-swipe, 0), 0, 0);
+}
+[data-svaul-drawer-overlay][data-svaul-drawer-swiping] {
+	opacity: var(--svaul-drawer-swipe-progress, 1);
+}
+
 /* snap-point drawers rest at a CSS-var offset instead of animating in */
 [data-svaul-drawer][data-svaul-drawer-snap-points="true"][data-svaul-drawer-direction="bottom"] {
 	transform: translate3d(0, var(--svaul-drawer-initial-transform, 100%), 0);
