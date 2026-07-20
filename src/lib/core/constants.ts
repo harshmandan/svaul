@@ -63,6 +63,10 @@ export const FLING_VELOCITY = 2;
 export const SWIPE_START_THRESHOLD_TOUCH = 10;
 export const SWIPE_START_THRESHOLD_MOUSE = 2;
 
+/** Minimum travel (px) before the scroll-vs-drag decision is made — real touch fires an initial
+ *  zero-displacement move, and deciding then can't tell an up-swipe (scroll) from a close drag. */
+export const DIRECTION_COMMIT_PX = 4;
+
 /** Handle (grabber) tap timings. */
 export const DOUBLE_TAP_TIMEOUT = 120;
 export const LONG_HANDLE_PRESS_TIMEOUT = 250;

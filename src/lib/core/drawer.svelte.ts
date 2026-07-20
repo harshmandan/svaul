@@ -10,6 +10,7 @@ import {
 	RELEASE,
 	SWIPE_START_THRESHOLD_MOUSE,
 	SWIPE_START_THRESHOLD_TOUCH,
+	DIRECTION_COMMIT_PX,
 	TRANSITION_EASE,
 	TRANSITIONS,
 	VELOCITY_THRESHOLD,
@@ -958,6 +959,12 @@ export class Drawer {
 
 		if (noCloseSnap && percentageDragged >= 1) return;
 
+		// Don't decide scroll-vs-drag until the gesture has a clear direction. Real touch fires an
+		// initial move at the exact press point (draggedDistance ≈ 0); deciding then reads `inDir` as
+		// false and — over content that can't scroll toward the close edge (e.g. an inner box at
+		// scrollTop 0) — latches a drawer drag before the finger has actually moved, hijacking what was
+		// meant to be an upward content scroll. Waiting a few pixels makes the direction reliable.
+		if (!this.#isAllowedToDrag && absDragged < DIRECTION_COMMIT_PX) return;
 		// Once shouldDrag approves a gesture it stays approved until release.
 		if (!this.#isAllowedToDrag && !this.#shouldDrag(event.target, isDraggingInDir)) return;
 		const firstMove = !this.#movedThisGesture;
@@ -1187,17 +1194,13 @@ export class Drawer {
 		// A range slider is dragged along its own axis; a drawer drag must never hijack it.
 		if (element.closest?.('input[type="range"]')) return false;
 		if (element.hasAttribute?.(ATTR.noDrag) || element.closest?.(`[${ATTR.noDrag}]`)) return false;
-		// Horizontal drawers: vaul returned true here unconditionally, so a horizontally
-		// scrollable child (carousel, wide code block) could never scroll and, once scrolled,
-		// could never be swiped closed. Climb for a scroller that can still move toward the
-		// close edge; otherwise drag.
+		// Horizontal drawers: climb for a scroller that can still move toward the close edge; else drag.
 		if (this.direction === "right" || this.direction === "left") return this.#climbAllowsDrag(target);
 
-		// A drawer already displaced toward its close edge is mid-flight → let a new press catch and keep
-		// dragging it. Only counts when the drawer is genuinely displaced: a snap drawer resting at a
-		// partial point, or a non-snap drawer that is CLOSING. This excludes a freshly-opened non-snap
-		// drawer, whose enter transition leaves a lingering transform (down to a fractional pixel) that
-		// would otherwise be read as an in-progress drag and hijack a scroll gesture on the content.
+		// Already displaced toward the close edge → keep dragging. Only when genuinely displaced: a snap
+		// drawer resting at a partial point, or a non-snap drawer that is CLOSING. Excludes the opening
+		// transition, whose sliding-in transform would otherwise be read as an in-progress drag and
+		// hijack a scroll gesture until it settles.
 		if ((this.hasSnapPoints || this.state === "closed") && swipeAmount !== null) {
 			if (this.direction === "bottom" ? swipeAmount > 0 : swipeAmount < 0) return true;
 		}
