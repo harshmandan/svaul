@@ -291,16 +291,37 @@
 		border-radius var(--svaul-scale-duration, 0.5s) cubic-bezier(0.32, 0.72, 0, 1),
 		filter var(--svaul-scale-duration, 0.5s) cubic-bezier(0.32, 0.72, 0, 1);
 }
+/* Scale amount compounds with nesting: base openness + one full step per nested level beyond the
+   first, so the page keeps receding as the stack grows. The vertical transform-origin is pinned to
+   --svaul-scroll-y (the viewport top), not the document top — the wrapper spans the whole page, so a
+   top origin would shift the visible content by scroll_offset × (1 − scale) and look like the page
+   scrolling. */
 [data-svaul-drawer-wrapper][data-svaul-drawer-scaled][data-svaul-drawer-scale-direction="bottom"],
 [data-svaul-drawer-wrapper][data-svaul-drawer-scaled][data-svaul-drawer-scale-direction="top"] {
-	transform-origin: top;
-	transform: scale(max(0.6, calc(1 - (1 - var(--svaul-scale-factor, 1)) * var(--svaul-scale-open, 0))))
+	transform-origin: 50% var(--svaul-scroll-y, 0px);
+	transform: scale(
+			max(
+				0.6,
+				calc(
+					1 - (1 - var(--svaul-scale-factor, 1)) *
+						(var(--svaul-scale-open, 0) + max(0, calc(var(--svaul-scale-levels, 0) - 1)))
+				)
+			)
+		)
 		translate3d(0, calc(env(safe-area-inset-top) + 14px * var(--svaul-scale-open, 0)), 0);
 }
 [data-svaul-drawer-wrapper][data-svaul-drawer-scaled][data-svaul-drawer-scale-direction="left"],
 [data-svaul-drawer-wrapper][data-svaul-drawer-scaled][data-svaul-drawer-scale-direction="right"] {
-	transform-origin: left;
-	transform: scale(max(0.6, calc(1 - (1 - var(--svaul-scale-factor, 1)) * var(--svaul-scale-open, 0))))
+	transform-origin: 0 calc(var(--svaul-scroll-y, 0px) + 50dvh);
+	transform: scale(
+			max(
+				0.6,
+				calc(
+					1 - (1 - var(--svaul-scale-factor, 1)) *
+						(var(--svaul-scale-open, 0) + max(0, calc(var(--svaul-scale-levels, 0) - 1)))
+				)
+			)
+		)
 		translate3d(calc(14px * var(--svaul-scale-open, 0)), 0, 0);
 }
 

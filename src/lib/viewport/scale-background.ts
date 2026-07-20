@@ -44,13 +44,18 @@ interface Entry {
 const entries = new Map<string, Entry>();
 let cachedWrapper: HTMLElement | null = null;
 let revertTimer: ReturnType<typeof setTimeout> | undefined;
+/** Page scroll offset captured when the first drawer opened. The wrapper spans the whole document, so
+ *  scaling it around its top shifts the visible content when the page is scrolled; pinning the
+ *  transform-origin to this offset (the viewport top) keeps the visible content put. */
+let scrollY = 0;
 
 const WRAPPER_VARS = [
 	"--svaul-scale-open",
 	"--svaul-scale-factor",
 	"--svaul-scale-levels",
 	"--svaul-scale-radius",
-	"--svaul-scale-duration"
+	"--svaul-scale-duration",
+	"--svaul-scroll-y"
 ] as const;
 
 function wrapperEl(): HTMLElement | null {
@@ -113,6 +118,7 @@ function applyToWrapper(animate: boolean): void {
 	s.setProperty("--svaul-scale-open", String(open));
 	s.setProperty("--svaul-scale-factor", String(getScale()));
 	s.setProperty("--svaul-scale-levels", String(levels));
+	s.setProperty("--svaul-scroll-y", `${scrollY}px`);
 	if (shallow.borderRadius != null) s.setProperty("--svaul-scale-radius", `${shallow.borderRadius}px`);
 }
 
@@ -144,6 +150,9 @@ export function acquireScale(opts: ScaleOptions): void {
 		clearTimeout(revertTimer);
 		revertTimer = undefined;
 	}
+	// Capture the scroll offset once, as the first drawer opens (before scroll-lock can move it), so
+	// every level pins the scale origin to the same viewport top.
+	if (entries.size === 0 && typeof window !== "undefined") scrollY = window.scrollY;
 	entries.set(opts.id, entryFrom(opts, 1));
 	applyToWrapper(opts.animate ?? true);
 	applyToBody();
@@ -164,28 +173,35 @@ export function scaleBackground(progress: number, opts: ScaleOptions): void {
  *  strips the attributes/variables once the transition settles. */
 export function revertScaleBackground(opts: ScaleOptions): void {
 	entries.delete(opts.id);
-	applyToBody();
 
 	if (entries.size > 0) {
-		applyToWrapper(opts.animate ?? true); // step back to the now-deepest drawer
+		applyToBody(); // step the tint back to the now-deepest drawer
+		applyToWrapper(opts.animate ?? true);
 		return;
 	}
 
 	const wrapper = wrapperEl();
 	if (!wrapper) {
+		applyToBody(); // nothing to animate — drop the tint now
 		cachedWrapper = null;
 		return;
 	}
 
 	const animate = (opts.animate ?? true) && typeof setTimeout !== "undefined";
-	// Keep the scaled rule (and its transition) active while easing openness → 0, so the transform,
-	// brightness, and radius all animate back to identity instead of snapping.
 	const s = wrapper.style;
+	// Re-enable the transition and flush it (reflow) BEFORE changing the target, so the scale eases
+	// back to identity instead of snapping — some engines won't transition when the duration goes
+	// 0s → non-zero in the same frame as the value (a live drag freezes it at 0s).
+	if (animate) {
+		const wasFrozen = s.getPropertyValue("--svaul-scale-duration") === "0s";
+		s.removeProperty("--svaul-scale-duration");
+		if (wasFrozen) void wrapper.offsetHeight;
+	} else {
+		s.setProperty("--svaul-scale-duration", "0s");
+	}
 	s.setProperty("--svaul-scale-open", "0");
 	s.setProperty("--svaul-scale-levels", "0");
 	s.setProperty("--svaul-scale-radius", "0px");
-	if (animate) s.removeProperty("--svaul-scale-duration");
-	else s.setProperty("--svaul-scale-duration", "0s");
 
 	const cleanup = () => {
 		// Re-query: the DOM may have been restructured (SPA nav) during the animation.
@@ -193,6 +209,10 @@ export function revertScaleBackground(opts: ScaleOptions): void {
 		current.removeAttribute(ATTR.scaled);
 		current.removeAttribute(ATTR.scaleDirection);
 		for (const v of WRAPPER_VARS) current.style.removeProperty(v);
+		// Drop the body tint only now, once the page has finished easing back to full size — removing
+		// it earlier makes the black vanish while the page is still scaled, flashing the gap to the
+		// page colour.
+		applyToBody();
 		cachedWrapper = null;
 	};
 
