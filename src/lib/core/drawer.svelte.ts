@@ -1193,8 +1193,12 @@ export class Drawer {
 		// close edge; otherwise drag.
 		if (this.direction === "right" || this.direction === "left") return this.#climbAllowsDrag(target);
 
-		// Already mid-drag in the open direction → keep dragging.
-		if (swipeAmount !== null) {
+		// A drawer already displaced toward its close edge is mid-flight → let a new press catch and keep
+		// dragging it. Only counts when the drawer is genuinely displaced: a snap drawer resting at a
+		// partial point, or a non-snap drawer that is CLOSING. This excludes a freshly-opened non-snap
+		// drawer, whose enter transition leaves a lingering transform (down to a fractional pixel) that
+		// would otherwise be read as an in-progress drag and hijack a scroll gesture on the content.
+		if ((this.hasSnapPoints || this.state === "closed") && swipeAmount !== null) {
 			if (this.direction === "bottom" ? swipeAmount > 0 : swipeAmount < 0) return true;
 		}
 
