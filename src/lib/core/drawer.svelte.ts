@@ -1140,17 +1140,19 @@ export class Drawer {
 	}
 
 	/** Animate the drawer back to its fully-open resting position after a released-but-not-dismissed
-	 *  drag. Clearing the inline drag styles hands control back to the CSS transition, which returns
-	 *  the drawer to its open resting position (data-state="open" → translate 0). */
+	 *  drag. Dropping the swiping state (in onRelease) hands control back to the CSS transition, which
+	 *  eases the drawer from its live position to open (data-state="open" → translate 0). */
 	#resetDrawer(): void {
 		const content = this.contentEl;
 		if (!content) return;
-		set(content, { transform: "", transition: "", "--svaul-drawer-duration": "", "--svaul-drawer-swipe": "" }, true);
-		set(
-			this.overlayEl,
-			{ opacity: "", transition: "", "--svaul-drawer-duration": "", "--svaul-drawer-swipe-progress": "" },
-			true
-		);
+		// Do NOT clear --svaul-drawer-swipe / -swipe-progress here: onRelease has set #swiping = false,
+		// but the `data-svaul-drawer-swiping` attribute is only removed on the next flush, so zeroing the
+		// variables now — while the frozen (0s) swiping rule is still applied — snaps the drawer straight
+		// to open instead of transitioning. The variables are stale-but-unused once the attribute drops,
+		// and get overwritten by the next drag or cleared on reopen (#resetInline). Only the per-close
+		// duration override needs clearing so the default duration animates the snap-back.
+		set(content, { transform: "", transition: "", "--svaul-drawer-duration": "" }, true);
+		set(this.overlayEl, { opacity: "", transition: "", "--svaul-drawer-duration": "" }, true);
 		// Restore the scaled background to fully-open (reset is non-snap only).
 		if (this.scaleBackground && !this.noBodyStyles) {
 			setScaleBackground(0, this.#scaleOpts({ animate: true }));
