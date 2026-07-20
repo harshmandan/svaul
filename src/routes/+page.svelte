@@ -52,8 +52,8 @@
             </h1>
         </div>
         <p class="mt-5 max-w-md text-pretty text-lg text-gray-600">
-            A drawer component for svelte 5. Feature rich, built from scratch
-            with svelte runes and with no dependencies.
+            The best drawer on the planet — now for Svelte 5. Velocity-based,
+            runes-first, zero dependencies. It answers to momentum, not keyframes.
         </p>
 
         <code
@@ -79,7 +79,7 @@
             class="absolute inset-x-0 bottom-8 flex flex-col items-center gap-1 text-sm text-gray-400"
         >
             <p>
-                Inspired by
+                v1 ported
                 <a
                     class="underline hover:text-gray-600"
                     href="https://vaul.emilkowal.ski">vaul</a
@@ -88,7 +88,7 @@
                 <a
                     class="underline hover:text-gray-600"
                     href="https://vaul-svelte.com">vaul-svelte</a
-                >.
+                >; v2 is a ground-up rebuild.
             </p>
             <p class="flex items-center gap-1 font-medium text-gray-500">
                 Scroll to view examples <span aria-hidden="true">↓</span>
