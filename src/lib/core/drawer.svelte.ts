@@ -811,8 +811,8 @@ export class Drawer {
 
 	// ---------------------------------------------------------------- velocity-throw close
 	// The swipe-release close (and its interruptible reopen): the close duration is scaled by the
-	// release velocity, and the exit is an inline transform transition (not the CSS keyframe) so a
-	// reopen can reverse it mid-flight.
+	// release velocity, and the exit is a CSS transform transition driven by data-state (not a
+	// keyframe), so a reopen can reverse it mid-flight from the live position.
 
 	/** The drawer's live size along the drag axis (px). */
 	#axisDimension(): number {

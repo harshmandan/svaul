@@ -23,7 +23,7 @@ export const VELOCITY_THRESHOLD = 0.4;
  * time to cover the remaining distance at the release speed (`remaining / velocity`), clamped, then
  * RE-NORMALIZED to a 0.1–1 scalar and multiplied by `BASE_MS`. So a hard flick ≈ `MIN_SCALAR *
  * BASE_MS` (40ms) and a gentle throw ≈ `MAX_SCALAR * BASE_MS` (400ms) — deliberately snappier than
- * the default keyframe.
+ * the default close transition.
  */
 export const RELEASE = {
 	/** Release speed (px/ms) is clamped to this band before a duration is derived. */
