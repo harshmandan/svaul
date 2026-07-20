@@ -116,6 +116,51 @@ const clamp = (n: number, lo: number, hi: number): number => Math.min(Math.max(n
 /** Reactive set of currently-open drawers — lets each one compute its card-stack depth. */
 const openDrawers = new SvelteSet<Drawer>();
 
+// Ref-counted `inert` shared across ALL drawer instances, so stacked modals cooperate: closing an
+// earlier modal must not un-inert the page behind a later one. We only touch elements svaul owns —
+// an element a consumer inerted itself (present in the map's absence) is left alone.
+const inertCounts = new WeakMap<Element, number>();
+function acquireInert(el: Element): void {
+	const owned = inertCounts.has(el);
+	if (el.hasAttribute("inert") && !owned) return; // a consumer owns this inert — don't manage it
+	const next = (inertCounts.get(el) ?? 0) + 1;
+	inertCounts.set(el, next);
+	if (next === 1) el.setAttribute("inert", "");
+}
+function releaseInert(el: Element): void {
+	const count = inertCounts.get(el);
+	if (count === undefined) return; // not svaul-owned
+	if (count > 1) {
+		inertCounts.set(el, count - 1);
+		return;
+	}
+	inertCounts.delete(el);
+	el.removeAttribute("inert");
+}
+/** Inert everything except the ancestor path from `content` up to `<body>` — so the modal (whether
+ *  portalled to body or rendered inline) is the only interactive region. The drawer's own `overlay`
+ *  (a sibling of the content) is kept interactive so click-to-close still works. Returns a cleanup. */
+function inertOutside(content: HTMLElement, overlay: HTMLElement | null, ignoreAttr: string): () => void {
+	const inerted: HTMLElement[] = [];
+	let node: HTMLElement | null = content;
+	while (node && node !== document.body) {
+		const parentEl: HTMLElement | null = node.parentElement;
+		if (!parentEl) break;
+		for (const sib of Array.from(parentEl.children)) {
+			if (sib === node || !(sib instanceof HTMLElement)) continue;
+			if (overlay && (sib === overlay || sib.contains(overlay))) continue; // the drawer's overlay
+			// Leave explicitly-ignored layers interactive (e.g. a popover/select portalled to <body>).
+			if (sib.matches(`[${ignoreAttr}]`) || sib.querySelector(`[${ignoreAttr}]`)) continue;
+			acquireInert(sib);
+			inerted.push(sib);
+		}
+		node = parentEl;
+	}
+	return () => {
+		for (const el of inerted) releaseInert(el);
+	};
+}
+
 /**
  * The reactive core of a drawer — the single source of truth shared (via context)
  * between the `<Drawer>` component's parts, and usable standalone as a headless API.
@@ -182,6 +227,8 @@ export class Drawer {
 	#pointerStartPoint: Point | null = null; // x/y at press (for swipe-intent)
 	#wasBeyondThePoint = false;
 	#lastPointerEvent: PointerEvent | null = null;
+	#pointerCancelled = false; // touch: pointer stream died (pointercancel) → touch events drive the drag
+	#scrolledBeforeDrag = false; // the gesture scrolled inner content before the drawer drag committed
 	#dragStartTime = 0;
 	#dragEndTime = 0;
 	#isAllowedToDrag = false;
@@ -277,33 +324,23 @@ export class Drawer {
 
 			const previouslyFocused = document.activeElement as HTMLElement | null;
 
-			// Mark every sibling of the drawer's portal root inert. The hasAttribute guard
-			// keeps this safe across nested drawers (each only un-inerts what it set).
-			const body = document.body;
-			const portalRoot = Array.from(body.children).find((c) => c.contains(content));
-			const inerted: HTMLElement[] = [];
-			for (const child of Array.from(body.children)) {
-				if (child === portalRoot || !(child instanceof HTMLElement)) continue;
-				// Leave explicitly-ignored layers interactive — e.g. a popover/select that
-				// portals its dropdown to <body> alongside (not inside) the drawer.
-				if (child.matches(`[${ATTR.ignore}]`) || child.querySelector(`[${ATTR.ignore}]`))
-					continue;
-				if (!child.hasAttribute("inert")) {
-					child.setAttribute("inert", "");
-					inerted.push(child);
-				}
-			}
+			// Inert everything except the path to the drawer (ref-counted so stacked modals cooperate,
+			// and walking up from the content so it also works for an inline / non-portalled modal).
+			const uninert = inertOutside(content, this.overlayEl, ATTR.ignore);
 
-			// Move focus into the dialog. autoFocus → first focusable; otherwise the
-			// container itself (announces the dialog without raising the mobile keyboard).
-			const target = this.autoFocus ? (getFocusable(content)[0] ?? content) : content;
-			target.focus({ preventScroll: true });
+			// Move focus into the dialog on open — but only if it isn't already inside (this effect can
+			// re-run when a reactive dep changes while open, and re-focusing would yank focus back from
+			// wherever the user navigated). autoFocus → first focusable; otherwise the container itself.
+			if (!content.contains(document.activeElement)) {
+				const target = this.autoFocus ? (getFocusable(content)[0] ?? content) : content;
+				target.focus({ preventScroll: true });
+			}
 
 			const untrap = trapFocus(content);
 
 			return () => {
 				untrap();
-				for (const el of inerted) el.removeAttribute("inert");
+				uninert();
 				// Restore focus to the trigger (or whatever had it), but only if it's still in the
 				// document — focusing a detached node silently drops focus to <body>. Fall back to
 				// the other candidate before giving up.
@@ -338,7 +375,23 @@ export class Drawer {
 						if (node === content || node === this.triggerEl) return;
 						if (node instanceof Element && node.closest(`[${ATTR.ignore}]`)) return;
 					}
-					if (this.dismissible && isTopmost(entry)) this.closeDrawer();
+					if (!(this.dismissible && isTopmost(entry))) return;
+					// Mouse/pen dismiss on press. For touch, wait for a stationary release — a press that
+					// was the start of a page scroll must not dismiss the drawer on finger-down.
+					if (event.pointerType !== "touch") {
+						this.closeDrawer();
+						return;
+					}
+					const startX = event.clientX;
+					const startY = event.clientY;
+					const onUp = (up: PointerEvent) => {
+						document.removeEventListener("pointerup", onUp, true);
+						document.removeEventListener("pointercancel", onUp, true);
+						if (up.type === "pointerup" && Math.hypot(up.clientX - startX, up.clientY - startY) < 10)
+							this.closeDrawer();
+					};
+					document.addEventListener("pointerup", onUp, true);
+					document.addEventListener("pointercancel", onUp, true);
 				};
 				document.addEventListener("pointerdown", onDown, true);
 				cleanups.push(() => document.removeEventListener("pointerdown", onDown, true));
@@ -685,6 +738,11 @@ export class Drawer {
 
 	#handleClose(): void {
 		if (!this.#present) return;
+		// A programmatic/controlled close can arrive mid-drag (parent flips `open` while the finger is
+		// down). Clear the drag first so #swiping/#isAllowedToDrag/isDragging don't stick and the swipe
+		// variables aren't zeroed while the frozen swiping rule is still applied (which would snap the
+		// drawer to open instead of animating closed).
+		if (this.isDragging) this.#cancelDrag();
 		const content = this.contentEl;
 		const overlay = this.overlayEl;
 		// A velocity release shortens the close via the duration variable (non-snap only). The `state`
@@ -865,6 +923,11 @@ export class Drawer {
 		if (!content) return;
 		if (event.target instanceof Node && !content.contains(event.target)) return;
 
+		// Catching a still-present, closing drawer reopens it: this cancels the pending unmount timer
+		// (via #handleOpen) so the content can't unmount mid-drag, and lets the user drag it back from
+		// its live position instead of it sliding out from under the finger.
+		if (this.#present && !this.open) this.setOpen(true);
+
 		this.#activePointerId = event.pointerId;
 
 		const rect = content.getBoundingClientRect();
@@ -872,6 +935,11 @@ export class Drawer {
 		this.#drawerWidth = rect.width;
 		this.isDragging = true;
 		this.#movedThisGesture = false;
+		this.#pointerCancelled = false;
+		this.#scrolledBeforeDrag = false;
+		// Cancel a pending nested-recede re-pin (scheduled when this drawer returned to rest) so it can't
+		// fire mid-gesture and stomp the live drag transform.
+		if (this.#nestedTimer) clearTimeout(this.#nestedTimer);
 		this.#dragStartTime = Date.now();
 		this.#pointerStartPoint = { x: event.pageX, y: event.pageY };
 		this.#wasBeyondThePoint = false;
@@ -941,12 +1009,15 @@ export class Drawer {
 	onDrag(event: PointerEvent): void {
 		const content = this.contentEl;
 		if (!content || !this.isDragging) return;
+		// Remember the live event for settlers (contextmenu/touchcancel). onPointerMove sets this too,
+		// but handle-only drags drive onDrag directly and would otherwise settle from a stale event.
+		this.#lastPointerEvent = event;
 
 		const hasSnap = this.hasSnapPoints;
 		const dirMul = directionMultiplier(this.direction);
-		const draggedDistance = (this.#pointerStart - this.#axis(event)) * dirMul * this.dragSensitivity;
+		let draggedDistance = (this.#pointerStart - this.#axis(event)) * dirMul * this.dragSensitivity;
 		const isDraggingInDir = draggedDistance > 0;
-		const absDragged = Math.abs(draggedDistance);
+		let absDragged = Math.abs(draggedDistance);
 		const dimension = isVertical(this.direction) ? this.#drawerHeight : this.#drawerWidth;
 		let percentageDragged = dimension > 0 ? absDragged / dimension : 0;
 
@@ -960,13 +1031,19 @@ export class Drawer {
 		if (noCloseSnap && percentageDragged >= 1) return;
 
 		// Don't decide scroll-vs-drag until the gesture has a clear direction. Real touch fires an
-		// initial move at the exact press point (draggedDistance ≈ 0); deciding then reads `inDir` as
-		// false and — over content that can't scroll toward the close edge (e.g. an inner box at
-		// scrollTop 0) — latches a drawer drag before the finger has actually moved, hijacking what was
-		// meant to be an upward content scroll. Waiting a few pixels makes the direction reliable.
-		if (!this.#isAllowedToDrag && absDragged < DIRECTION_COMMIT_PX) return;
-		// Once shouldDrag approves a gesture it stays approved until release.
-		if (!this.#isAllowedToDrag && !this.#shouldDrag(event.target, isDraggingInDir)) return;
+		// initial move at the exact press point (≈ 0 travel); deciding then reads `inDir` as false and —
+		// over content that can't scroll toward the close edge (e.g. an inner box at scrollTop 0) —
+		// latches a drawer drag before the finger has actually moved, hijacking what was meant to be an
+		// upward content scroll. Gate on the RAW finger travel (not the sensitivity-amplified value) so a
+		// high `dragSensitivity` doesn't shrink the commit window back toward zero.
+		const rawTravel = Math.abs(this.#pointerStart - this.#axis(event));
+		if (!this.#isAllowedToDrag && rawTravel < DIRECTION_COMMIT_PX) return;
+		// Once shouldDrag approves a gesture it stays approved until release. A rejection here means the
+		// gesture is (so far) scrolling inner content — remember that so the eventual drag re-anchors.
+		if (!this.#isAllowedToDrag && !this.#shouldDrag(event.target, isDraggingInDir)) {
+			this.#scrolledBeforeDrag = true;
+			return;
+		}
 		const firstMove = !this.#movedThisGesture;
 		content.classList.add(DRAG_CLASS);
 		this.#isAllowedToDrag = true;
@@ -980,6 +1057,16 @@ export class Drawer {
 		// mid-animation follow the finger from where it was, not jump from 0. Snap drawers keep the
 		// engine's own inline transform, so only freeze their transition here.
 		if (firstMove) {
+			// If the gesture scrolled inner content before the drag engaged, re-anchor the origin to the
+			// commit point — otherwise that scrolled distance stays baked into draggedDistance and
+			// teleports the drawer on the first drag frame. A normal drag (no prior scroll) keeps its
+			// origin at the press point so displacement/sensitivity stay measured from there.
+			if (this.#scrolledBeforeDrag) {
+				this.#pointerStart = this.#axis(event);
+				draggedDistance = 0;
+				absDragged = 0;
+				if (!hasSnap) percentageDragged = 0;
+			}
 			if (hasSnap) {
 				set(content, { transition: "none" });
 				set(this.overlayEl, { transition: "none" });
@@ -1100,6 +1187,7 @@ export class Drawer {
 				draggedDistance: distMoved * dirMul,
 				velocity,
 				flickDir,
+				closeThreshold: this.closeThreshold,
 				dismissible: this.dismissible,
 				closeDrawer: () => {
 					closed = true;
@@ -1120,23 +1208,28 @@ export class Drawer {
 			return;
 		}
 
-		// Fast flick → close. Arm the velocity throw (release speed always clears the throw floor here).
-		if (velocity > VELOCITY_THRESHOLD) {
+		// Whether the release *flick* points toward the close edge (down for bottom, up for top, …).
+		// `signedVelocity` is the raw axis velocity; multiplying by the direction sign normalizes it so
+		// > 0 means close-ward for every direction. A reversing flick (drag down, flick back up) must NOT
+		// count as a fast close, and must not arm a throw with its wrong-direction speed.
+		const flickToClose = signedVelocity * directionMultiplier(this.direction) > 0;
+
+		// Fast flick toward the close edge → close. Arm the velocity throw.
+		if (velocity > VELOCITY_THRESHOLD && flickToClose) {
 			this.#closeVelocity = velocity;
 			this.closeDrawer();
 			this.#props.onRelease?.(event, false);
 			return;
 		}
 
-		// Past the close threshold → close. Arm the throw only if there's still enough release speed
-		// to warrant it (above the MIN_VELOCITY floor); a dead-slow drag past the threshold closes
-		// with the default keyframe instead.
+		// Past the close threshold → close. Arm the throw only if there's still enough close-ward release
+		// speed to warrant it (above the MIN_VELOCITY floor); otherwise it closes with the default duration.
 		const rect = content.getBoundingClientRect();
 		const visibleH = Math.min(rect.height, window.innerHeight);
 		const visibleW = Math.min(rect.width, window.innerWidth);
 		const horizontal = this.direction === "left" || this.direction === "right";
 		if (Math.abs(swipeAmount) >= (horizontal ? visibleW : visibleH) * this.closeThreshold) {
-			if (velocity > RELEASE.MIN_VELOCITY) this.#closeVelocity = velocity;
+			if (flickToClose && velocity > RELEASE.MIN_VELOCITY) this.#closeVelocity = velocity;
 			this.closeDrawer();
 			this.#props.onRelease?.(event, false);
 			return;
@@ -1197,13 +1290,17 @@ export class Drawer {
 		// Horizontal drawers: climb for a scroller that can still move toward the close edge; else drag.
 		if (this.direction === "right" || this.direction === "left") return this.#climbAllowsDrag(target);
 
-		// Already displaced toward the close edge → keep dragging. Only when genuinely displaced: a snap
-		// drawer resting at a partial point, or a non-snap drawer that is CLOSING. Excludes the opening
-		// transition, whose sliding-in transform would otherwise be read as an in-progress drag and
-		// hijack a scroll gesture until it settles.
-		if ((this.hasSnapPoints || this.state === "closed") && swipeAmount !== null) {
-			if (this.direction === "bottom" ? swipeAmount > 0 : swipeAmount < 0) return true;
-		}
+		// A drawer displaced toward its close edge is mid-flight → keep dragging it (catches a closing
+		// drawer; lets a snap drawer at a partial point be re-dragged). For a snap drawer, measure the
+		// ACTIVE snap offset (its rest target) rather than the live transform — so a scroll during the
+		// open-to-full-point transition isn't hijacked by the sliding-in residual. For a non-snap drawer,
+		// only while it is CLOSING (its opening transition's residual must not read as an in-progress drag).
+		const displaced = this.hasSnapPoints
+			? (this.#snap.activeSnapPointOffset ?? 0)
+			: this.state === "closed"
+				? (swipeAmount ?? 0)
+				: 0;
+		if (this.direction === "bottom" ? displaced > 0 : displaced < 0) return true;
 
 		if (highlightedText && highlightedText.length > 0) return false;
 
@@ -1377,7 +1474,11 @@ export class Drawer {
 	// touch-event fallback below (mirrors vaul-svelte, which never binds pointercancel);
 	// mouse/pen never scroll-cancel this way, so they keep the normal release behaviour.
 	#onContentPointerCancel = (event: PointerEvent) => {
-		if (event.pointerType === "touch") return;
+		if (event.pointerType === "touch") {
+			// The pointer stream is dead; hand the rest of the gesture to the touch-event fallback.
+			this.#pointerCancelled = true;
+			return;
+		}
 		this.onRelease(event);
 	};
 	// Touch fallback: after a pointercancel the pointer-event stream stops, but touch
@@ -1397,7 +1498,10 @@ export class Drawer {
 		});
 	}
 	#onContentTouchMove = (event: TouchEvent) => {
-		if (this.handleOnly) return;
+		// Only drive the drag from touch once the pointer stream has died (pointercancel). Otherwise
+		// pointermove already handles it, and running both double-fires onDrag (and corrupts the
+		// velocity sampler with duplicate same-position samples).
+		if (this.handleOnly || !this.#pointerCancelled) return;
 		this.onPointerMove(this.#toPointerish(event));
 	};
 	#onContentTouchEnd = (event: TouchEvent) => this.onRelease(this.#toPointerish(event, true));

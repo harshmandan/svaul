@@ -3,8 +3,7 @@ import {
 	TRANSITIONS,
 	TRANSITION_EASE,
 	VELOCITY_THRESHOLD,
-	FLING_VELOCITY,
-	CLOSE_THRESHOLD
+	FLING_VELOCITY
 } from "../core/constants.js";
 import { isVertical, set } from "../core/dom.js";
 import { extract, isDefined } from "../core/reactivity.svelte.js";
@@ -233,20 +232,12 @@ export class SnapPointsEngine {
 	// #resolve when a `container` is set — would otherwise re-run on *every* getter
 	// access, and these are read many times per pointermove. Dependencies (snapPoints,
 	// direction, container, window size) don't change mid-drag, so this computes once.
-	#pairs = $derived.by(() => {
-		const resolved = (this.#deps.snapPoints() ?? [])
+	#pairs = $derived.by(() =>
+		(this.#deps.snapPoints() ?? [])
 			.map((point) => ({ point, ...this.#resolve(point) }))
 			.sort((a, b) => a.height - b.height)
-			.map(({ point, offset }) => ({ point, offset: Math.round(offset) }));
-		// Collapse points that resolve to the same rest offset — keeping both would leave an
-		// indistinguishable dead point that the offset-keyed lookups (findIndex, reduce) can't select.
-		const deduped: { point: SnapPoint; offset: number }[] = [];
-		for (const p of resolved) {
-			if (deduped[deduped.length - 1]?.offset === p.offset) continue;
-			deduped.push(p);
-		}
-		return deduped;
-	});
+			.map(({ point, offset }) => ({ point, offset: Math.round(offset) }))
+	);
 	#arr: SnapPoint[] = $derived(this.#pairs.map((p) => p.point));
 	#offsets: number[] = $derived(this.#pairs.map((p) => p.offset));
 
@@ -362,10 +353,12 @@ export class SnapPointsEngine {
 		velocity: number;
 		/** Sign of the release flick in the draggedDistance convention (+1 = toward more-open), or 0. */
 		flickDir: number;
+		/** Fraction of the remaining distance to close a drag must pass to dismiss the smallest point. */
+		closeThreshold: number;
 		dismissible: boolean;
 		closeDrawer: () => void;
 	}): void {
-		const { draggedDistance, velocity, flickDir, dismissible, closeDrawer } = args;
+		const { draggedDistance, velocity, flickDir, closeThreshold, dismissible, closeDrawer } = args;
 		const dir = this.#deps.direction();
 		const offsets = this.snapPointsOffset;
 		const sp = this.snapPointsArr;
@@ -412,7 +405,7 @@ export class SnapPointsEngine {
 		// the remaining distance from this point to fully closed.
 		if (isFirst && dismissible && draggedDistance < 0) {
 			const remainingToClose = Math.max(dim - Math.abs(activeOffset), 0);
-			if (Math.abs(draggedDistance) > remainingToClose * CLOSE_THRESHOLD) {
+			if (Math.abs(draggedDistance) > remainingToClose * closeThreshold) {
 				closeDrawer();
 				return;
 			}
@@ -424,7 +417,10 @@ export class SnapPointsEngine {
 		);
 
 		if (velocity > VELOCITY_THRESHOLD && Math.abs(draggedDistance) < dim * 0.4) {
-			const dragDir = hasDraggedUp ? 1 : -1;
+			// Use the release flick for the step/dismiss direction (velocity > threshold guarantees a
+			// real flick, so flickDir is set); a near-zero net drag then no longer defaults to "down"
+			// and surprise-dismisses the first point.
+			const dragDir = flickDir !== 0 ? flickDir : hasDraggedUp ? 1 : -1;
 			if (dragDir > 0 && this.isLastSnapPoint) {
 				this.snapToPoint(offsets[sp.length - 1]);
 				return;

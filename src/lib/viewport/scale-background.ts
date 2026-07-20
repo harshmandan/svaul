@@ -94,9 +94,11 @@ function applyToWrapper(animate: boolean): void {
 	}
 	if (!shallow || !deepest) return;
 
-	// Openness of the page (shallowest drawer); tint compounds with nesting depth (deepest drawer).
+	// Openness of the page (shallowest drawer); tint + scale compound with how many *scaling* drawers
+	// are stacked, measured relative to the shallowest entry — not absolute depth, so a nested drawer
+	// whose ancestors don't scale still counts as level 1 rather than over-scaling by a step.
 	const open = 1 - clamp01(shallow.progress);
-	const levels = deepest.depth + (1 - clamp01(deepest.progress));
+	const levels = deepest.depth - shallow.depth + (1 - clamp01(deepest.progress));
 
 	const s = wrapper.style;
 	wrapper.setAttribute(ATTR.scaled, "");
@@ -150,9 +152,12 @@ export function acquireScale(opts: ScaleOptions): void {
 		clearTimeout(revertTimer);
 		revertTimer = undefined;
 	}
-	// Capture the scroll offset once, as the first drawer opens (before scroll-lock can move it), so
-	// every level pins the scale origin to the same viewport top.
-	if (entries.size === 0 && typeof window !== "undefined") scrollY = window.scrollY;
+	// Capture the scroll offset once, as the first drawer opens, so every level pins the scale origin to
+	// the same viewport top. iOS scroll-lock runs first and sets `body{position:fixed; top:-scrollY}`,
+	// which zeroes `window.scrollY` — recover the real offset from that inline `top` when it's present.
+	if (entries.size === 0 && typeof window !== "undefined") {
+		scrollY = window.scrollY || -Number.parseFloat(document.body.style.top || "0") || 0;
+	}
 	entries.set(opts.id, entryFrom(opts, 1));
 	applyToWrapper(opts.animate ?? true);
 	applyToBody();
@@ -175,7 +180,9 @@ export function revertScaleBackground(opts: ScaleOptions): void {
 	entries.delete(opts.id);
 
 	if (entries.size > 0) {
-		applyToBody(); // step the tint back to the now-deepest drawer
+		// Other drawers remain and the page stays scaled — DON'T re-evaluate the tint here. If the drawer
+		// that owned the tint just closed while an untinted one remains, dropping the black now would
+		// flash the still-scaled gap to the page colour. The tint clears only on the last close (below).
 		applyToWrapper(opts.animate ?? true);
 		return;
 	}
