@@ -96,13 +96,24 @@ function applyToWrapper(animate: boolean): void {
 	const s = wrapper.style;
 	wrapper.setAttribute(ATTR.scaled, "");
 	wrapper.setAttribute(ATTR.scaleDirection, shallow.direction);
+
+	// A live drag freezes the transition (0s); at rest the stylesheet's default duration animates.
+	if (animate) {
+		// Coming out of a frozen drag, re-enable the transition and flush it with the CURRENT values
+		// FIRST (via a reflow), then change the target below. Some engines won't start a transition when
+		// transition-duration goes 0s → non-zero in the same frame as the animated value, and snap
+		// instead — the same paint-boundary the drawer gets for free from its reactive attribute.
+		const wasFrozen = s.getPropertyValue("--svaul-scale-duration") === "0s";
+		s.removeProperty("--svaul-scale-duration");
+		if (wasFrozen) void wrapper.offsetHeight;
+	} else {
+		s.setProperty("--svaul-scale-duration", "0s");
+	}
+
 	s.setProperty("--svaul-scale-open", String(open));
 	s.setProperty("--svaul-scale-factor", String(getScale()));
 	s.setProperty("--svaul-scale-levels", String(levels));
 	if (shallow.borderRadius != null) s.setProperty("--svaul-scale-radius", `${shallow.borderRadius}px`);
-	// A live drag freezes the transition (0s); at rest the stylesheet's default duration animates.
-	if (animate) s.removeProperty("--svaul-scale-duration");
-	else s.setProperty("--svaul-scale-duration", "0s");
 }
 
 /** Toggle the body tint (a data attribute + a custom property — never overwrites the author's
