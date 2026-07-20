@@ -1,5 +1,11 @@
 import { untrack } from "svelte";
-import { TRANSITIONS, TRANSITION_EASE, VELOCITY_THRESHOLD, FLING_VELOCITY } from "../core/constants.js";
+import {
+	TRANSITIONS,
+	TRANSITION_EASE,
+	VELOCITY_THRESHOLD,
+	FLING_VELOCITY,
+	CLOSE_THRESHOLD
+} from "../core/constants.js";
 import { isVertical, set } from "../core/dom.js";
 import { extract, isDefined } from "../core/reactivity.svelte.js";
 import type { DrawerDirection, MaybeGetter, SnapPoint } from "../core/types.js";
@@ -394,16 +400,29 @@ export class SnapPointsEngine {
 			return;
 		}
 
+		// Container extent (for the distance thresholds below).
+		const rect = this.#deps.container()?.getBoundingClientRect();
+		const dim = isVertical(dir)
+			? (rect?.height ?? window.innerHeight)
+			: (rect?.width ?? window.innerWidth);
+
+		// At the smallest point there's nowhere lower to snap: a downward drag far enough toward closed
+		// dismisses on distance alone. A slow swipe releases with ~0 velocity, so the velocity branches
+		// never fire — without this, a slow drag-to-dismiss just springs back. Threshold: a fraction of
+		// the remaining distance from this point to fully closed.
+		if (isFirst && dismissible && draggedDistance < 0) {
+			const remainingToClose = Math.max(dim - Math.abs(activeOffset), 0);
+			if (Math.abs(draggedDistance) > remainingToClose * CLOSE_THRESHOLD) {
+				closeDrawer();
+				return;
+			}
+		}
+
 		// Closest point to the released position.
 		const closest = offsets.reduce((prev, curr) =>
 			Math.abs(curr - currentPosition) < Math.abs(prev - currentPosition) ? curr : prev
 		);
 
-		// Measure the fling ratio against the container when offsets resolve against one.
-		const rect = this.#deps.container()?.getBoundingClientRect();
-		const dim = isVertical(dir)
-			? (rect?.height ?? window.innerHeight)
-			: (rect?.width ?? window.innerWidth);
 		if (velocity > VELOCITY_THRESHOLD && Math.abs(draggedDistance) < dim * 0.4) {
 			const dragDir = hasDraggedUp ? 1 : -1;
 			if (dragDir > 0 && this.isLastSnapPoint) {
