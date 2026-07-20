@@ -5,15 +5,35 @@
 	let open = $state(false);
 	let lastComplete = $state("—");
 	let activeSnap = $state<number | string | null>(0.4);
+	let velocityOpen = $state(false);
+
+	// Close then reopen shortly after — makes the interruptible reopen easy to see (and device-test)
+	// without hand-timing a flick + tap.
+	function blip() {
+		velocityOpen = false;
+		setTimeout(() => (velocityOpen = true), 120);
+	}
 
 	const dirs: DrawerDirection[] = ["top", "right", "left"];
 </script>
 
 <div data-svaul-drawer-wrapper>
 <main>
-	<h1>svelte-drawer · playground</h1>
-	<p>Phases 1–5: open/close, drag, snap points, focus trap, scroll-lock, scaling, nesting.</p>
+	<h1>svaul · test-suite</h1>
+	<p>Fixtures for automated e2e + manual on-device checks: open/close, drag, snap, focus, scaling, nesting.</p>
 	<p style="color:#666">Try dragging a drawer down (or toward its edge) to dismiss it.</p>
+
+	<section>
+		<h2>Velocity close (throw + interruptible)</h2>
+		<button class="btn" onclick={() => (velocityOpen = true)}>Open</button>
+		<button class="btn" onclick={blip}>Dismiss + reopen (120ms)</button>
+		<Drawer bind:open={velocityOpen} class="panel">
+			{#snippet title()}Velocity close{/snippet}
+			<p>Flick me down at different speeds. Grab me again mid-close.</p>
+			<div style="height: 40vh"></div>
+			<p>Bottom of content.</p>
+		</Drawer>
+	</section>
 
 	<section>
 		<h2>Uncontrolled (internal state + trigger)</h2>

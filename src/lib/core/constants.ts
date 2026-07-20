@@ -23,7 +23,7 @@ export const VELOCITY_THRESHOLD = 0.4;
  * time to cover the remaining distance at the release speed (`remaining / velocity`), clamped, then
  * RE-NORMALIZED to a 0.1–1 scalar and multiplied by `BASE_MS`. So a hard flick ≈ `MIN_SCALAR *
  * BASE_MS` (40ms) and a gentle throw ≈ `MAX_SCALAR * BASE_MS` (400ms) — deliberately snappier than
- * the default keyframe.
+ * the default close transition.
  */
 export const RELEASE = {
 	/** Release speed (px/ms) is clamped to this band before a duration is derived. */
@@ -63,6 +63,10 @@ export const FLING_VELOCITY = 2;
 export const SWIPE_START_THRESHOLD_TOUCH = 10;
 export const SWIPE_START_THRESHOLD_MOUSE = 2;
 
+/** Minimum travel (px) before the scroll-vs-drag decision is made — real touch fires an initial
+ *  zero-displacement move, and deciding then can't tell an up-swipe (scroll) from a close drag. */
+export const DIRECTION_COMMIT_PX = 4;
+
 /** Handle (grabber) tap timings. */
 export const DOUBLE_TAP_TIMEOUT = 120;
 export const LONG_HANDLE_PRESS_TIMEOUT = 250;
@@ -89,6 +93,12 @@ export const ATTR = {
 	snapPoints: "data-svaul-drawer-snap-points",
 	snapPointsOverlay: "data-svaul-drawer-snap-points-overlay",
 	wrapper: "data-svaul-drawer-wrapper",
+	/** Present on the wrapper while it is scaled behind a drawer; drives the CSS card-stack rules. */
+	scaled: "data-svaul-drawer-scaled",
+	/** Direction of the drawer driving the wrapper scale (picks the lift axis / transform-origin). */
+	scaleDirection: "data-svaul-drawer-scale-direction",
+	/** Present on a drawer that is stepped back behind its open descendants (nested recede). */
+	nested: "data-svaul-drawer-nested",
 	noDrag: "data-svaul-drawer-no-drag",
 	noAnimate: "data-svaul-drawer-no-animate",
 	/** User-applied marker on non-drawer elements (e.g. a portaled popover/select) telling

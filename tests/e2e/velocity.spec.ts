@@ -16,7 +16,7 @@ function translateY(transform: string): number {
 }
 
 async function openDrawer(page: Page, settleMs = 560): Promise<Locator> {
-	await page.goto("/velocity");
+	await page.goto("/test-suite");
 	await page.getByRole("button", { name: "Open", exact: true }).click();
 	const dialog = page.getByRole("dialog").first();
 	await expect(dialog).toBeVisible();
@@ -78,12 +78,30 @@ test.describe("velocity throw", () => {
 	});
 });
 
+test.describe("enter animation", () => {
+	test("the enter animates in (transition, not a jump to open)", async ({ page }) => {
+		await page.goto("/test-suite");
+		await page.getByRole("button", { name: "Open", exact: true }).click();
+		const dialog = page.getByRole("dialog").first();
+		await expect(dialog).toBeVisible();
+		const ys: number[] = [];
+		for (let i = 0; i < 4; i++) {
+			ys.push(translateY(await dialog.evaluate((el) => getComputedStyle(el).transform).catch(() => "none")));
+			await page.waitForTimeout(25);
+		}
+		// Enter starts near fully-closed (large translate) and moves toward open (0): it must be
+		// partway and trending down. A jump-to-open would read ~0 on every sample.
+		expect(Math.max(...ys), `enter samples ${JSON.stringify(ys)}`).toBeGreaterThan(30);
+		expect(ys[ys.length - 1]).toBeLessThan(ys[0]);
+	});
+});
+
 test.describe("no drag-lock timers", () => {
 	// The old 500ms post-open lock swallowed drags. Flicking well within that window must now close —
 	// a re-introduced lock would leave the dialog mounted.
 	for (const openDelay of [80, 300]) {
 		test(`flick ${openDelay}ms after open still dismisses`, async ({ page }) => {
-			await page.goto("/velocity");
+			await page.goto("/test-suite");
 			await page.getByRole("button", { name: "Open", exact: true }).click();
 			const dialog = page.getByRole("dialog").first();
 			await expect(dialog).toBeVisible();
@@ -122,9 +140,21 @@ test.describe("interruptible close", () => {
 		expect(ys[ys.length - 1]).toBeLessThan(ys[0]);
 		await expect(dialog).toBeVisible();
 	});
+
+	test("re-opening mid NON-swipe (outside-click) close also glides continuously", async ({ page }) => {
+		const dialog = await openDrawer(page);
+		const height = (await dialog.boundingBox())!.height;
+		await page.mouse.click(8, 8); // outside-click close (no velocity) — now transition-driven too
+		await page.waitForTimeout(60);
+		await page.getByRole("button", { name: "Open", exact: true }).click({ noWaitAfter: true });
+		const ys = (await sampleY(page, dialog, 5, 30)).filter((n) => !Number.isNaN(n));
+		// Continuous reverse from the live position — never jumps to fully-closed first.
+		expect(Math.max(...ys), `saw ${JSON.stringify(ys)} (h=${Math.round(height)})`).toBeLessThan(height - 5);
+		await expect(dialog).toBeVisible();
+	});
 });
 
-test.describe("non-swipe closes use the default keyframe (not the throw)", () => {
+test.describe("non-swipe closes animate (default duration, no velocity)", () => {
 	test("an outside click animates closed", async ({ page }) => {
 		const dialog = await openDrawer(page);
 		const height = (await dialog.boundingBox())!.height;

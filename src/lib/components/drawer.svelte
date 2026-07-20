@@ -75,8 +75,8 @@
 		nested?: boolean;
 		/** Portal target for the overlay + content. `false` renders inline. Default `body`. */
 		portalTarget?: PortalTarget | false;
-		/** Keep the content mounted (hidden + inert) while closed instead of unmounting it,
-		 *  so it can be measured / queried before first open. */
+		/** Keep the content mounted (hidden with `visibility` + inert) while closed instead of
+		 *  unmounting it, so it can be measured or queried before first open. */
 		keepMounted?: boolean;
 		/** Class/style for the default content panel (ignored if you supply a `content` snippet). */
 		class?: ClassValue;
@@ -265,15 +265,16 @@
 		{/if}
 	{/snippet}
 
-	<!-- When keepMounted, the content stays in the DOM while closed — hide + inert it. -->
+	<!-- When keepMounted, the content stays in the DOM while closed. Hide it with visibility (not
+	     display:none) so it keeps layout and can still be measured/queried, and inert it. -->
 	{@const hidden = keepMounted && !drawer.present}
 	{#if portalTarget === false}
-		<div style={hidden ? "display: none" : "display: contents"} inert={hidden || undefined}>
+		<div style={hidden ? "display: contents; visibility: hidden" : "display: contents"} inert={hidden || undefined}>
 			{@render tree()}
 		</div>
 	{:else}
 		<div
-			style={hidden ? "display: none" : "display: contents"}
+			style={hidden ? "display: contents; visibility: hidden" : "display: contents"}
 			inert={hidden || undefined}
 			{@attach portal(portalTarget)}
 		>

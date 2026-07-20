@@ -9,12 +9,10 @@
 
 </div>
 
-An unstyled, **runes-first drawer / bottom-sheet for Svelte 5** — drag-to-dismiss, snap
-points, nested drawers, and an accessible dialog core. **Zero runtime dependencies.**
-
-A ground-up Svelte 5 re-imagining of [vaul](https://github.com/emilkowalski/vaul) and
-[vaul-svelte](https://github.com/huntabyte/vaul-svelte) (see [Credits](#credits)). See
-the advantages over both in the [Why svaul?](#why-svaul) section below.
+**The best drawer on the planet — for Svelte 5.** Velocity-based, runes-first, unstyled:
+drag-to-dismiss, snap points, nested drawers, an accessible dialog core. **Zero runtime
+dependencies.** Fling it, catch it mid-close, reverse it on a dime — joy to use.
+(See [Why svaul?](#why-svaul).)
 
 ## Quick start
 
@@ -72,7 +70,8 @@ Plus `closeThreshold`, `repositionInputs`, `preventScrollRestoration`, `noBodySt
 `fadeFromIndex`, `snapToSequentialPoint`, `container`, `keepMounted`, `onlyPrimaryPointer`
 — see the exported types.
 
-**Snap points** accept fractions (`0.5`), pixels (`"148px"`), percentages (`"50%"`), and
+**Snap points** accept fractions (`≤ 1`, e.g. `0.5`), pixels (`"148px"` or a plain number `> 1`),
+percentages (`"50%"`), `rem`/`vh`/`vw`, and
 `calc()` combinations: `snapPoints={["calc(50% + 24px)", 1]}`.
 
 ## Styling
@@ -109,16 +108,9 @@ without `!important`. With Tailwind v4, declare the layer order once:
 
 ## Credits
 
-This library stands entirely on the shoulders of two projects:
-
-- **[vaul](https://github.com/emilkowalski/vaul)** by [Emil Kowalski](https://emilkowalski.com)
-  — the original React drawer. Its drag physics, snap-point math, and the overall feel are
-  ported from here.
-- **[vaul-svelte](https://github.com/huntabyte/vaul-svelte)** by
-  [Huntabyte](https://github.com/huntabyte) — the Svelte port that proved the idea. `svaul`
-  is a from-scratch Svelte 5 (runes, zero-dependency) take on the same concept.
-
-Huge thanks to both. ♥
+svaul v1 was inspired by **[vaul](https://github.com/emilkowalski/vaul)** and
+**[vaul-svelte](https://github.com/huntabyte/vaul-svelte)**. v2 reimagines the motion system
+but the look is still from **[vaul](https://github.com/emilkowalski/vaul)**. Thanks to both ♥.
 
 ## License
 

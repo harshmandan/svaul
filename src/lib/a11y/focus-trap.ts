@@ -12,17 +12,29 @@ const FOCUSABLE = [
 	"[contenteditable]:not([contenteditable='false'])"
 ].join(",");
 
-/** Visible, focusable descendants of `container`, in DOM order. */
+function isFocusableVisible(el: HTMLElement): boolean {
+	// Skip elements inside inert / aria-hidden / hidden subtrees.
+	if (el.closest("[inert],[aria-hidden='true'],[hidden]")) return false;
+	if (el === document.activeElement) return true;
+	// `visibility: hidden` / `collapse` elements still report layout box size, so an
+	// offset-only check would wrongly treat them as focusable — check computed visibility.
+	if (el.offsetWidth <= 0 && el.offsetHeight <= 0) return false;
+	return getComputedStyle(el).visibility === "visible";
+}
+
+/** Visible, focusable descendants of `container`, descending into shadow roots (so focusables inside
+ *  a web component are reachable by the trap). Light-DOM order, with each shadow tree's focusables
+ *  appended after its host's. */
 export function getFocusable(container: HTMLElement): HTMLElement[] {
-	return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => {
-		// Skip elements inside inert / aria-hidden / hidden subtrees.
-		if (el.closest("[inert],[aria-hidden='true'],[hidden]")) return false;
-		if (el === document.activeElement) return true;
-		// `visibility: hidden` / `collapse` elements still report layout box size, so an
-		// offset-only check would wrongly treat them as focusable — check computed visibility.
-		if (el.offsetWidth <= 0 && el.offsetHeight <= 0) return false;
-		return getComputedStyle(el).visibility === "visible";
-	});
+	const out: HTMLElement[] = [];
+	const collect = (root: HTMLElement | ShadowRoot) => {
+		for (const el of Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)))
+			if (isFocusableVisible(el)) out.push(el);
+		for (const host of Array.from(root.querySelectorAll<HTMLElement>("*")))
+			if (host.shadowRoot) collect(host.shadowRoot);
+	};
+	collect(container);
+	return out;
 }
 
 /**

@@ -1,5 +1,10 @@
 import { untrack } from "svelte";
-import { TRANSITIONS, TRANSITION_EASE, VELOCITY_THRESHOLD, FLING_VELOCITY } from "../core/constants.js";
+import {
+	TRANSITIONS,
+	TRANSITION_EASE,
+	VELOCITY_THRESHOLD,
+	FLING_VELOCITY
+} from "../core/constants.js";
 import { isVertical, set } from "../core/dom.js";
 import { extract, isDefined } from "../core/reactivity.svelte.js";
 import type { DrawerDirection, MaybeGetter, SnapPoint } from "../core/types.js";
@@ -21,28 +26,78 @@ export interface SnapPointsDeps {
 const trans = (prop: "transform" | "opacity") =>
 	`${prop} ${TRANSITIONS.DURATION}s ${TRANSITION_EASE}`;
 
+const CALC_TERM = /([+-]?\s*\d*\.?\d+)\s*(px|%|rem|vh|vw)/gi;
+const warnedSnapPoints = new Set<string>();
+
+function warnSnapPoint(point: SnapPoint, reason: string): void {
+	const key = String(point);
+	if (warnedSnapPoints.has(key) || typeof console === "undefined") return;
+	warnedSnapPoints.add(key);
+	console.warn(`[svaul] snap point ${JSON.stringify(point)}: ${reason}`);
+}
+
+/** Root font size (for `rem`), SSR-safe. */
+function rootFontSize(): number {
+	if (typeof window === "undefined") return 16;
+	const fs = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+	return Number.isFinite(fs) && fs > 0 ? fs : 16;
+}
+
+function resolveUnit(n: number, unit: string, size: number): number {
+	switch (unit) {
+		case "px":
+			return n;
+		case "%":
+			return (n / 100) * size;
+		case "rem":
+			return n * rootFontSize();
+		case "vh":
+			return (n / 100) * (typeof window !== "undefined" ? window.innerHeight : 0);
+		case "vw":
+			return (n / 100) * (typeof window !== "undefined" ? window.innerWidth : 0);
+		default:
+			return 0;
+	}
+}
+
 /**
- * Resolve a snap point to a pixel length against `size` (the viewport/container extent).
- * Supports fractions (`0.5`), pixels (`"148px"`), percentages (`"50%"`), and `calc()`
- * combinations of the two (`"calc(50% + 24px)"`, `"calc(100% - 40px)"`).
+ * Resolve a snap point to a pixel length against `size` (the viewport/container extent), clamped to
+ * `[0, size]` so an oversized value can never rest the drawer off-screen past the fully-open edge.
+ * Accepts:
+ *  - numbers/unit-less strings: `≤ 1` is a fraction of `size`, `> 1` is pixels (e.g. `0.5`, `"180"`);
+ *  - single units: `"180px"`, `"50%"`, `"12rem"`, `"40vh"`, `"30vw"`;
+ *  - `calc()` sums of the above (`"calc(50% + 24px)"`, `"calc(100% - 40px)"`).
+ * An unrecognized/empty expression resolves to 0 and warns (once) instead of silently misbehaving.
  */
 function resolveLength(point: SnapPoint, size: number): number {
-	if (typeof point === "number") return point * size;
+	const clamp = (len: number) => Math.min(Math.max(len, 0), size);
+
+	if (typeof point === "number") return clamp(point <= 1 ? point * size : point);
 	const raw = point.trim();
-	// A unit-less numeric string ("0.5") is a fraction, like the number form. Without this the
-	// px/% matcher below finds nothing and silently resolves it to 0 → drawer rests off-screen.
-	if (/^[+-]?\d*\.?\d+$/.test(raw)) return Number.parseFloat(raw) * size;
+	// A unit-less numeric string follows the same ≤1 fraction / >1 pixel rule as the number form.
+	if (/^[+-]?\d*\.?\d+$/.test(raw)) {
+		const n = Number.parseFloat(raw);
+		return clamp(n <= 1 ? n * size : n);
+	}
 	const expr = raw.replace(/^calc\(/i, "").replace(/\)$/, "");
-	const term = /([+-]?\s*\d*\.?\d+)\s*(px|%)/g;
 	let total = 0;
 	let matched = false;
 	let m: RegExpExecArray | null;
-	while ((m = term.exec(expr))) {
+	CALC_TERM.lastIndex = 0;
+	while ((m = CALC_TERM.exec(expr))) {
 		matched = true;
 		const n = Number.parseFloat(m[1].replace(/\s+/g, ""));
-		total += m[2] === "%" ? (n / 100) * size : n;
+		total += resolveUnit(n, m[2].toLowerCase(), size);
 	}
-	return matched ? total : 0;
+	if (!matched) {
+		warnSnapPoint(point, "could not be parsed; resolving to 0");
+		return 0;
+	}
+	// Any alphabetic residue means the expression carried a unit we don't understand (`em`, `ch`, …)
+	// → the sum above is a partial (silently wrong) resolve. Warn so it's visible.
+	const leftover = expr.replace(CALC_TERM, "").replace(/[\s+\-*/().]/g, "");
+	if (leftover.length) warnSnapPoint(point, `contains an unsupported unit in "${raw}"; ignoring it`);
+	return clamp(total);
 }
 
 /**
@@ -296,10 +351,14 @@ export class SnapPointsEngine {
 	onRelease(args: {
 		draggedDistance: number;
 		velocity: number;
+		/** Sign of the release flick in the draggedDistance convention (+1 = toward more-open), or 0. */
+		flickDir: number;
+		/** Fraction of the remaining distance to close a drag must pass to dismiss the smallest point. */
+		closeThreshold: number;
 		dismissible: boolean;
 		closeDrawer: () => void;
 	}): void {
-		const { draggedDistance, velocity, dismissible, closeDrawer } = args;
+		const { draggedDistance, velocity, flickDir, closeThreshold, dismissible, closeDrawer } = args;
 		const dir = this.#deps.direction();
 		const offsets = this.snapPointsOffset;
 		const sp = this.snapPointsArr;
@@ -318,16 +377,38 @@ export class SnapPointsEngine {
 				: activeOffset + draggedDistance;
 		const isFirst = this.activeSnapPointIndex === 0;
 		const hasDraggedUp = draggedDistance > 0;
+		// Only fling when the release flick agrees with the net drag direction. A flick that reverses
+		// the drag (e.g. drag up, then flick down at release) falls through to the nearest-point logic
+		// instead of throwing to the far end the wrong way.
+		const flingConsistent = flickDir !== 0 && Math.sign(draggedDistance) === flickDir;
 
 		// Velocity fling: skip straight to close / first / last.
-		if (!seq && velocity > FLING_VELOCITY && !hasDraggedUp) {
+		if (!seq && velocity > FLING_VELOCITY && flingConsistent && !hasDraggedUp) {
 			if (dismissible) closeDrawer();
 			else this.snapToPoint(offsets[0]);
 			return;
 		}
-		if (!seq && velocity > FLING_VELOCITY && hasDraggedUp) {
+		if (!seq && velocity > FLING_VELOCITY && flingConsistent && hasDraggedUp) {
 			this.snapToPoint(offsets[sp.length - 1]);
 			return;
+		}
+
+		// Container extent (for the distance thresholds below).
+		const rect = this.#deps.container()?.getBoundingClientRect();
+		const dim = isVertical(dir)
+			? (rect?.height ?? window.innerHeight)
+			: (rect?.width ?? window.innerWidth);
+
+		// At the smallest point there's nowhere lower to snap: a downward drag far enough toward closed
+		// dismisses on distance alone. A slow swipe releases with ~0 velocity, so the velocity branches
+		// never fire — without this, a slow drag-to-dismiss just springs back. Threshold: a fraction of
+		// the remaining distance from this point to fully closed.
+		if (isFirst && dismissible && draggedDistance < 0) {
+			const remainingToClose = Math.max(dim - Math.abs(activeOffset), 0);
+			if (Math.abs(draggedDistance) > remainingToClose * closeThreshold) {
+				closeDrawer();
+				return;
+			}
 		}
 
 		// Closest point to the released position.
@@ -335,13 +416,11 @@ export class SnapPointsEngine {
 			Math.abs(curr - currentPosition) < Math.abs(prev - currentPosition) ? curr : prev
 		);
 
-		// Measure the fling ratio against the container when offsets resolve against one.
-		const rect = this.#deps.container()?.getBoundingClientRect();
-		const dim = isVertical(dir)
-			? (rect?.height ?? window.innerHeight)
-			: (rect?.width ?? window.innerWidth);
 		if (velocity > VELOCITY_THRESHOLD && Math.abs(draggedDistance) < dim * 0.4) {
-			const dragDir = hasDraggedUp ? 1 : -1;
+			// Use the release flick for the step/dismiss direction (velocity > threshold guarantees a
+			// real flick, so flickDir is set); a near-zero net drag then no longer defaults to "down"
+			// and surprise-dismisses the first point.
+			const dragDir = flickDir !== 0 ? flickDir : hasDraggedUp ? 1 : -1;
 			if (dragDir > 0 && this.isLastSnapPoint) {
 				this.snapToPoint(offsets[sp.length - 1]);
 				return;

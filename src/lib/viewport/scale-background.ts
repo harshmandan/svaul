@@ -1,5 +1,4 @@
-import { ATTR, BORDER_RADIUS, TRANSITIONS, TRANSITION_EASE, WINDOW_TOP_OFFSET } from "../core/constants.js";
-import { isVertical, set } from "../core/dom.js";
+import { ATTR, TRANSITIONS, WINDOW_TOP_OFFSET } from "../core/constants.js";
 import type { DrawerDirection } from "../core/types.js";
 
 export interface ScaleOptions {
@@ -18,25 +17,13 @@ export interface ScaleOptions {
 	animate?: boolean;
 }
 
-/** Lift (px) the scaled page slides down by, and the per-level dimming step / floor. */
-const LIFT = 14;
-const DARK_STEP = 0.12;
-const DARK_MIN = 0.5;
-const SCALE_MIN = 0.6;
-
-/** Scale factor applied to the page behind the drawer at full openness (vaul's `getScale`). */
+/**
+ * Scale factor applied to the page behind the drawer at full openness (vaul's `getScale`). This is
+ * the one viewport-derived number the CSS can't compute itself (calc can't divide length by length),
+ * so it's published as `--svaul-scale-factor`; the stylesheet owns the rest of the visual mapping.
+ */
 export function getScale(): number {
 	return (window.innerWidth - WINDOW_TOP_OFFSET) / window.innerWidth;
-}
-
-/** Honor the user's reduced-motion preference (the wrapper is styled via JS, so it
- *  isn't covered by the CSS `@media (prefers-reduced-motion)` block). */
-function prefersReducedMotion(): boolean {
-	return (
-		typeof window !== "undefined" &&
-		typeof window.matchMedia === "function" &&
-		window.matchMedia("(prefers-reduced-motion: reduce)").matches
-	);
 }
 
 interface Entry {
@@ -45,15 +32,31 @@ interface Entry {
 	progress: number;
 	direction: DrawerDirection;
 	borderRadius?: number;
+	setBackgroundColorOnScale: boolean;
+	backgroundColor?: string;
+	noBodyStyles: boolean;
 }
 
-// Registry of the currently-scaling drawers, keyed by id. The wrapper's scale + tint are
-// recomputed from the *deepest* open drawer so nested drawers compound (each level steps the
-// page back and dims it further); the body color is saved once and restored when all release.
+// Registry of the currently-scaling drawers, keyed by id. The wrapper's published openness comes from
+// the *shallowest* drawer (the page scales once for the root, not per nested level) and the tint level
+// from the *deepest* (nesting dims further). JS only writes CSS variables + data attributes here —
+// the stylesheet maps them to the actual transform / filter / background (see drawer.css).
 const entries = new Map<string, Entry>();
-let savedBodyBackground: string | null = null;
 let cachedWrapper: HTMLElement | null = null;
 let revertTimer: ReturnType<typeof setTimeout> | undefined;
+/** Page scroll offset captured when the first drawer opened. The wrapper spans the whole document, so
+ *  scaling it around its top shifts the visible content when the page is scrolled; pinning the
+ *  transform-origin to this offset (the viewport top) keeps the visible content put. */
+let scrollY = 0;
+
+const WRAPPER_VARS = [
+	"--svaul-scale-open",
+	"--svaul-scale-factor",
+	"--svaul-scale-levels",
+	"--svaul-scale-radius",
+	"--svaul-scale-duration",
+	"--svaul-scroll-y"
+] as const;
 
 function wrapperEl(): HTMLElement | null {
 	if (cachedWrapper?.isConnected) return cachedWrapper;
@@ -62,19 +65,24 @@ function wrapperEl(): HTMLElement | null {
 	return cachedWrapper;
 }
 
-const WRAPPER_PROPS = [
-	"transform",
-	"filter",
-	"borderRadius",
-	"overflow",
-	"transformOrigin",
-	"transitionProperty",
-	"transitionDuration",
-	"transitionTimingFunction"
-] as const;
+function clamp01(n: number): number {
+	return Math.min(Math.max(n, 0), 1);
+}
 
-/** Recompute the wrapper transform + brightness from the deepest open drawer. */
-function recompute(animate: boolean): void {
+function entryFrom(opts: ScaleOptions, progress: number): Entry {
+	return {
+		depth: opts.depth,
+		progress,
+		direction: opts.direction,
+		borderRadius: opts.borderRadius,
+		setBackgroundColorOnScale: opts.setBackgroundColorOnScale,
+		backgroundColor: opts.backgroundColor,
+		noBodyStyles: opts.noBodyStyles
+	};
+}
+
+/** Publish the wrapper's openness/levels/factor as CSS variables + data attributes. */
+function applyToWrapper(animate: boolean): void {
 	const wrapper = wrapperEl();
 	if (!wrapper) return;
 
@@ -86,132 +94,136 @@ function recompute(animate: boolean): void {
 	}
 	if (!shallow || !deepest) return;
 
-	// The PAGE only scales for the root (shallowest) drawer — it does NOT compound as
-	// nested drawers open (those step back the *drawers*, not the page again). A single
-	// drawer reproduces the original behavior exactly (scale getScale()→1).
-	const pRoot = Math.min(Math.max(shallow.progress, 0), 1);
-	const open = 1 - pRoot;
-	const base = 1 - getScale();
-	const scale = Math.max(Math.min(1 - base * open, 1), SCALE_MIN);
-	const radius = (shallow.borderRadius ?? BORDER_RADIUS) * open;
-	const translate = LIFT * open;
-	const dir = shallow.direction;
+	// Openness of the page (shallowest drawer); tint + scale compound with how many *scaling* drawers
+	// are stacked, measured relative to the shallowest entry — not absolute depth, so a nested drawer
+	// whose ancestors don't scale still counts as level 1 rather than over-scaling by a step.
+	const open = 1 - clamp01(shallow.progress);
+	const levels = deepest.depth - shallow.depth + (1 - clamp01(deepest.progress));
 
-	// The tint DOES compound with nesting depth — each level dims the page another step.
-	const pDeep = Math.min(Math.max(deepest.progress, 0), 1);
-	const levels = deepest.depth + (1 - pDeep);
-	const brightness = Math.max(1 - DARK_STEP * Math.max(0, levels - 1), DARK_MIN);
-	// The safe-area inset only applies to the vertical (top) lift, not the horizontal axis.
-	const transform = isVertical(dir)
-		? `scale(${scale}) translate3d(0, calc(env(safe-area-inset-top) + ${translate}px), 0)`
-		: `scale(${scale}) translate3d(${translate}px, 0, 0)`;
+	const s = wrapper.style;
+	wrapper.setAttribute(ATTR.scaled, "");
+	wrapper.setAttribute(ATTR.scaleDirection, shallow.direction);
 
-	const shouldAnimate = animate && !prefersReducedMotion();
-	set(
-		wrapper,
-		{
-			transformOrigin: isVertical(dir) ? "top" : "left",
-			overflow: "hidden",
-			borderRadius: `${radius}px`,
-			transform,
-			filter: `brightness(${brightness})`,
-			transitionProperty: "transform, border-radius, filter",
-			transitionDuration: shouldAnimate ? `${TRANSITIONS.DURATION}s` : "0s",
-			transitionTimingFunction: TRANSITION_EASE
-		},
-		true
-	);
+	// A live drag freezes the transition (0s); at rest the stylesheet's default duration animates.
+	if (animate) {
+		// Coming out of a frozen drag, re-enable the transition and flush it with the CURRENT values
+		// FIRST (via a reflow), then change the target below. Some engines won't start a transition when
+		// transition-duration goes 0s → non-zero in the same frame as the animated value, and snap
+		// instead — the same paint-boundary the drawer gets for free from its reactive attribute.
+		const wasFrozen = s.getPropertyValue("--svaul-scale-duration") === "0s";
+		s.removeProperty("--svaul-scale-duration");
+		if (wasFrozen) void wrapper.offsetHeight;
+	} else {
+		s.setProperty("--svaul-scale-duration", "0s");
+	}
+
+	s.setProperty("--svaul-scale-open", String(open));
+	s.setProperty("--svaul-scale-factor", String(getScale()));
+	s.setProperty("--svaul-scale-levels", String(levels));
+	s.setProperty("--svaul-scroll-y", `${scrollY}px`);
+	if (shallow.borderRadius != null) s.setProperty("--svaul-scale-radius", `${shallow.borderRadius}px`);
 }
 
-/** Register a drawer on open and paint the body color once (first acquirer). */
+/** Toggle the body tint (a data attribute + a custom property — never overwrites the author's
+ *  `background`, so nothing needs saving/restoring). */
+function applyToBody(): void {
+	if (typeof document === "undefined") return;
+	const body = document.body;
+	let tint: Entry | undefined;
+	for (const e of entries.values()) {
+		if (e.setBackgroundColorOnScale && !e.noBodyStyles) {
+			tint = e;
+			break;
+		}
+	}
+	if (tint) {
+		body.setAttribute(ATTR.scaled, "");
+		if (tint.backgroundColor != null) body.style.setProperty("--svaul-scale-bg", tint.backgroundColor);
+		else body.style.removeProperty("--svaul-scale-bg");
+	} else {
+		body.removeAttribute(ATTR.scaled);
+		body.style.removeProperty("--svaul-scale-bg");
+	}
+}
+
+/** Register a drawer on open. */
 export function acquireScale(opts: ScaleOptions): void {
 	if (revertTimer) {
 		clearTimeout(revertTimer);
 		revertTimer = undefined;
 	}
-	const first = entries.size === 0;
-	entries.set(opts.id, {
-		depth: opts.depth,
-		progress: 1,
-		direction: opts.direction,
-		borderRadius: opts.borderRadius
-	});
-	if (
-		first &&
-		opts.setBackgroundColorOnScale &&
-		!opts.noBodyStyles &&
-		typeof document !== "undefined" &&
-		savedBodyBackground === null
-	) {
-		savedBodyBackground = document.body.style.background;
-		document.body.style.background = opts.backgroundColor ?? "black";
+	// Capture the scroll offset once, as the first drawer opens, so every level pins the scale origin to
+	// the same viewport top. iOS scroll-lock runs first and sets `body{position:fixed; top:-scrollY}`,
+	// which zeroes `window.scrollY` — recover the real offset from that inline `top` when it's present.
+	if (entries.size === 0 && typeof window !== "undefined") {
+		scrollY = window.scrollY || -Number.parseFloat(document.body.style.top || "0") || 0;
 	}
+	entries.set(opts.id, entryFrom(opts, 1));
+	applyToWrapper(opts.animate ?? true);
+	applyToBody();
 }
 
 /**
- * Set this drawer's openness. `progress` 0 → fully open (max scale-down / lift); 1 → closed.
- * Snap drawers pass `activeOffset / viewport` so the backdrop tracks how open they are. The
- * wrapper is recomputed from the deepest open drawer, so nested drawers compound.
+ * Set this drawer's openness. `progress` 0 → fully open (max scale-down / lift); 1 → closed. Snap
+ * drawers pass `activeOffset / viewport` so the backdrop tracks how open they are.
  */
 export function scaleBackground(progress: number, opts: ScaleOptions): void {
-	entries.set(opts.id, {
-		depth: opts.depth,
-		progress,
-		direction: opts.direction,
-		borderRadius: opts.borderRadius
-	});
-	recompute(opts.animate ?? true);
+	entries.set(opts.id, entryFrom(opts, progress));
+	applyToWrapper(opts.animate ?? true);
+	applyToBody();
 }
 
-/** Release on close. If other drawers remain the wrapper eases back to the next level;
- *  only the last release animates to identity and clears the inline styles. */
-export function revertScaleBackground(opts: ScaleOptions, noBodyStyles: boolean): void {
+/** Release on close. If other drawers remain the wrapper eases to the now-deepest level; the last
+ *  release eases the published openness to 0 (the stylesheet animates back to identity) and then
+ *  strips the attributes/variables once the transition settles. */
+export function revertScaleBackground(opts: ScaleOptions): void {
 	entries.delete(opts.id);
-	const shouldAnimate = (opts.animate ?? true) && !prefersReducedMotion();
 
 	if (entries.size > 0) {
-		recompute(opts.animate ?? true); // step back to the now-deepest drawer
+		// Other drawers remain and the page stays scaled — DON'T re-evaluate the tint here. If the drawer
+		// that owned the tint just closed while an untinted one remains, dropping the black now would
+		// flash the still-scaled gap to the page colour. The tint clears only on the last close (below).
+		applyToWrapper(opts.animate ?? true);
 		return;
 	}
 
 	const wrapper = wrapperEl();
 	if (!wrapper) {
-		// The wrapper unmounted (e.g. SPA navigation from a link inside the drawer). Still restore
-		// the body background — otherwise it's left permanently painted the scale backdrop colour.
-		if (!noBodyStyles && savedBodyBackground !== null) {
-			document.body.style.background = savedBodyBackground;
-			savedBodyBackground = null;
-		}
+		applyToBody(); // nothing to animate — drop the tint now
 		cachedWrapper = null;
 		return;
 	}
-	set(
-		wrapper,
-		{
-			borderRadius: "0px",
-			transform: "scale(1) translate3d(0, 0, 0)",
-			filter: "brightness(1)",
-			transitionProperty: "transform, border-radius, filter",
-			transitionDuration: shouldAnimate ? `${TRANSITIONS.DURATION}s` : "0s",
-			transitionTimingFunction: TRANSITION_EASE
-		},
-		true
-	);
+
+	const animate = (opts.animate ?? true) && typeof setTimeout !== "undefined";
+	const s = wrapper.style;
+	// Re-enable the transition and flush it (reflow) BEFORE changing the target, so the scale eases
+	// back to identity instead of snapping — some engines won't transition when the duration goes
+	// 0s → non-zero in the same frame as the value (a live drag freezes it at 0s).
+	if (animate) {
+		const wasFrozen = s.getPropertyValue("--svaul-scale-duration") === "0s";
+		s.removeProperty("--svaul-scale-duration");
+		if (wasFrozen) void wrapper.offsetHeight;
+	} else {
+		s.setProperty("--svaul-scale-duration", "0s");
+	}
+	s.setProperty("--svaul-scale-open", "0");
+	s.setProperty("--svaul-scale-levels", "0");
+	s.setProperty("--svaul-scale-radius", "0px");
+
+	const cleanup = () => {
+		// Re-query: the DOM may have been restructured (SPA nav) during the animation.
+		const current = wrapperEl() ?? wrapper;
+		current.removeAttribute(ATTR.scaled);
+		current.removeAttribute(ATTR.scaleDirection);
+		for (const v of WRAPPER_VARS) current.style.removeProperty(v);
+		// Drop the body tint only now, once the page has finished easing back to full size — removing
+		// it earlier makes the black vanish while the page is still scaled, flashing the gap to the
+		// page colour.
+		applyToBody();
+		cachedWrapper = null;
+	};
 
 	if (revertTimer) clearTimeout(revertTimer);
-	// Clear the inline styles once the revert settles (immediately when not animating).
-	// Re-query the wrapper inside the timeout: the DOM may have been restructured
-	// (e.g. route change) during the animation, so the captured ref could be stale.
-	revertTimer = setTimeout(
-		() => {
-			const current = wrapperEl() ?? wrapper;
-			for (const prop of WRAPPER_PROPS) current.style[prop] = "";
-			if (!noBodyStyles && savedBodyBackground !== null) {
-				document.body.style.background = savedBodyBackground;
-				savedBodyBackground = null;
-			}
-			cachedWrapper = null;
-		},
-		shouldAnimate ? TRANSITIONS.DURATION * 1000 : 0
-	);
+	if (animate) revertTimer = setTimeout(cleanup, TRANSITIONS.DURATION * 1000);
+	else cleanup();
 }

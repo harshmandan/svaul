@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test.describe("Phase 5 — a11y + viewport", () => {
 	test("locks body scroll while open and restores it on close", async ({ page }) => {
-		await page.goto("/playground");
+		await page.goto("/test-suite");
 		const overflowBefore = await page.evaluate(() => document.body.style.overflow);
 
 		await page.getByRole("button", { name: "Open uncontrolled" }).click();
@@ -14,7 +14,7 @@ test.describe("Phase 5 — a11y + viewport", () => {
 	});
 
 	test("Escape closes the drawer", async ({ page }) => {
-		await page.goto("/playground");
+		await page.goto("/test-suite");
 		await page.getByRole("button", { name: "Open uncontrolled" }).click();
 		await expect(page.getByRole("dialog").first()).toBeVisible();
 		await page.keyboard.press("Escape");
@@ -22,7 +22,7 @@ test.describe("Phase 5 — a11y + viewport", () => {
 	});
 
 	test("returns focus to the trigger on close", async ({ page }) => {
-		await page.goto("/playground");
+		await page.goto("/test-suite");
 		const trigger = page.getByRole("button", { name: "Open uncontrolled" });
 		await trigger.click();
 		await expect(page.getByRole("dialog").first()).toBeVisible();
@@ -32,13 +32,13 @@ test.describe("Phase 5 — a11y + viewport", () => {
 	});
 
 	test("autoFocus moves focus into the drawer", async ({ page }) => {
-		await page.goto("/playground");
+		await page.goto("/test-suite");
 		await page.getByRole("button", { name: "Open scaling drawer" }).click();
 		await expect(page.getByPlaceholder("autofocused input")).toBeFocused();
 	});
 
 	test("scaleBackground transforms the page wrapper", async ({ page }) => {
-		await page.goto("/playground");
+		await page.goto("/test-suite");
 		await page.getByRole("button", { name: "Open scaling drawer" }).click();
 		await page.waitForTimeout(150);
 		const transform = await page.evaluate(
@@ -48,7 +48,7 @@ test.describe("Phase 5 — a11y + viewport", () => {
 	});
 
 	test("opening a nested drawer displaces the parent", async ({ page }) => {
-		await page.goto("/playground");
+		await page.goto("/test-suite");
 		await page.getByRole("button", { name: "Open scaling drawer" }).click();
 		const parent = page.getByRole("dialog").first();
 		await expect(parent).toBeVisible();
