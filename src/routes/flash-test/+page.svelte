@@ -1,119 +1,86 @@
 <script lang="ts">
-    // ─────────────────────────────────────────────────────────────────────────
     // THROWAWAY iOS isolation page for the "whole page flashes orange" bug.
-    // A minimal, hand-rolled copy of the scale-background + tint so each toggle
-    // isolates ONE mechanism. Open on an iPhone, flip toggles, and note which
-    // combination has NO orange flash on open/close. Delete this route after.
-    // ─────────────────────────────────────────────────────────────────────────
-    const TINT = "#ea580c";
+    // Uses the REAL library Drawer (orange scale tint). Each toggle injects a CSS
+    // override disabling ONE library-specific feature, to find which stops the
+    // flash. Open on an iPhone, flip toggles on open/close. Delete route after.
+    import Drawer from "$lib/index.js";
 
-    let open = $state(false);
-    let tintMode = $state<"body" | "backdrop">("body");
+    let killFilter = $state(false);
+    let killOverlay = $state(false);
+    let killRadius = $state(false);
     let promote = $state(false);
-    let lockMode = $state<"fixed" | "overflow" | "none">("fixed");
-    let scrollYVar = $state(0);
-    let savedTop = 0;
 
-    function lock() {
-        const y = window.scrollY;
-        savedTop = y;
-        if (lockMode === "fixed") {
-            const b = document.body.style;
-            b.position = "fixed";
-            b.top = `-${y}px`;
-            b.left = "0";
-            b.right = "0";
-            b.width = "100%";
-        } else if (lockMode === "overflow") {
-            document.documentElement.style.overflow = "hidden";
-            document.body.style.overflow = "hidden";
+    // Library CSS is in @layer svaul, so these unlayered !important rules win.
+    $effect(() => {
+        const rules: string[] = [];
+        if (killFilter) rules.push("[data-svaul-drawer-wrapper]{filter:none!important}");
+        if (killRadius) rules.push("[data-svaul-drawer-wrapper]{border-radius:0!important}");
+        if (killOverlay) rules.push("[data-svaul-drawer-overlay]{background:transparent!important}");
+        if (promote)
+            rules.push(
+                "[data-svaul-drawer-wrapper]{will-change:transform;backface-visibility:hidden;-webkit-backface-visibility:hidden}",
+            );
+
+        const id = "flash-test-overrides";
+        let el = document.getElementById(id) as HTMLStyleElement | null;
+        if (!el) {
+            el = document.createElement("style");
+            el.id = id;
+            document.head.appendChild(el);
         }
-    }
-    function unlock() {
-        if (lockMode === "fixed") {
-            const b = document.body.style;
-            b.position = b.top = b.left = b.right = b.width = "";
-            window.scrollTo(0, savedTop);
-        } else if (lockMode === "overflow") {
-            document.documentElement.style.overflow = "";
-            document.body.style.overflow = "";
-        }
-    }
+        el.textContent = rules.join("\n");
+        return () => el?.remove();
+    });
 
-    function openSheet() {
-        scrollYVar = window.scrollY;
-        if (tintMode === "body") document.body.style.background = TINT;
-        lock();
-        open = true;
-    }
-    function closeSheet() {
-        open = false;
-        unlock();
-        // Match the library: drop the body tint after the scale settles.
-        setTimeout(() => {
-            if (tintMode === "body") document.body.style.background = "";
-        }, 500);
-    }
-
-    // A concise label so a screenshot captures the exact config under test.
     const config = $derived(
-        `tint=${tintMode} · promote=${promote ? "on" : "off"} · lock=${lockMode}`,
+        "filter=" +
+            (killFilter ? "OFF" : "on") +
+            " · radius=" +
+            (killRadius ? "OFF" : "on") +
+            " · overlay=" +
+            (killOverlay ? "OFF" : "on") +
+            " · promote=" +
+            (promote ? "on" : "off"),
     );
+
+    const rows = Array.from({ length: 24 }, (_, i) => i + 1);
 </script>
 
 <svelte:head><title>flash-test</title></svelte:head>
 
-<!-- Fixed controls: always reachable regardless of scroll / lock. -->
 <div class="controls">
     <div class="cfg">{config}</div>
-    <div class="row">
-        <span>tint</span>
-        <button class:on={tintMode === "body"} onclick={() => (tintMode = "body")}>body</button>
-        <button class:on={tintMode === "backdrop"} onclick={() => (tintMode = "backdrop")}
-            >backdrop</button
-        >
+    <div class="btnrow">
+        <button class:on={killFilter} onclick={() => (killFilter = !killFilter)}>filter {killFilter ? "OFF" : "on"}</button>
+        <button class:on={killRadius} onclick={() => (killRadius = !killRadius)}>radius {killRadius ? "OFF" : "on"}</button>
     </div>
-    <div class="row">
-        <span>promote</span>
-        <button class:on={!promote} onclick={() => (promote = false)}>off</button>
-        <button class:on={promote} onclick={() => (promote = true)}>on</button>
+    <div class="btnrow">
+        <button class:on={killOverlay} onclick={() => (killOverlay = !killOverlay)}>overlay {killOverlay ? "OFF" : "on"}</button>
+        <button class:on={promote} onclick={() => (promote = !promote)}>promote {promote ? "on" : "off"}</button>
     </div>
-    <div class="row">
-        <span>lock</span>
-        <button class:on={lockMode === "fixed"} onclick={() => (lockMode = "fixed")}>fixed</button>
-        <button class:on={lockMode === "overflow"} onclick={() => (lockMode = "overflow")}
-            >overflow</button
-        >
-        <button class:on={lockMode === "none"} onclick={() => (lockMode = "none")}>none</button>
-    </div>
-    <button class="open" onclick={openSheet}>▲ Open sheet (scroll down first)</button>
+    <p class="hint">Scroll down, open the drawer, watch edges/notch on open + close.</p>
 </div>
 
-<!-- Fixed tint backdrop (only used in backdrop mode); sits behind the wrapper. -->
-{#if tintMode === "backdrop"}
-    <div class="backdrop" class:show={open}></div>
-{/if}
-
-<!-- The scaled page. transform-origin pinned to the scroll offset, like the library. -->
-<div
-    class="wrapper"
-    class:open
-    class:promote
-    style="transform-origin: 50% {scrollYVar}px;"
->
+<div data-svaul-drawer-wrapper class="wrapper">
     <div class="page">
-        <h1>Scroll down, then Open</h1>
-        {#each Array(30) as _, i}
-            <p>Row {i + 1} — filler content so the page scrolls like the real site.</p>
+        <h1>Real library tint drawer</h1>
+        {#each rows as n}
+            <p>Row {n} — filler so the page scrolls.</p>
         {/each}
-    </div>
-</div>
 
-<!-- The "drawer": a plain bottom sheet that slides up. -->
-<div class="sheet" class:open>
-    <div class="grab"></div>
-    <p>Sheet open. Watch the edges/notch for an orange flash on open AND close.</p>
-    <button onclick={closeSheet}>Close</button>
+        <Drawer direction="bottom" scaleBackground backgroundColor="#ea580c" class="panel">
+            {#snippet trigger(props)}
+                <button {...props} class="open">Open tint drawer</button>
+            {/snippet}
+            {#snippet handle(props)}
+                <div {...props} class="grab"></div>
+            {/snippet}
+            {#snippet children(controls)}
+                <p>Tint drawer open — the page behind should tint orange.</p>
+                <button class="close" onclick={controls.close}>Close</button>
+            {/snippet}
+        </Drawer>
+    </div>
 </div>
 
 <style>
@@ -123,7 +90,7 @@
     .controls {
         position: fixed;
         inset: env(safe-area-inset-top) 0 auto 0;
-        z-index: 20;
+        z-index: 2000;
         background: rgba(17, 24, 39, 0.95);
         color: #fff;
         padding: 8px 10px;
@@ -135,104 +102,71 @@
     .cfg {
         color: #fbbf24;
     }
-    .row {
+    .btnrow {
         display: flex;
-        align-items: center;
-        gap: 6px;
-    }
-    .row span {
-        width: 56px;
-        color: #9ca3af;
+        gap: 8px;
     }
     .controls button {
+        flex: 1;
         background: rgba(255, 255, 255, 0.12);
         color: #fff;
         border: 0;
         border-radius: 5px;
-        padding: 4px 10px;
+        padding: 6px 8px;
         font: inherit;
     }
     .controls button.on {
-        background: #2563eb;
+        background: #16a34a;
     }
-    .controls .open {
-        background: #ea580c;
-        padding: 8px;
-        font-weight: 600;
+    .hint {
+        margin: 0;
+        color: #9ca3af;
     }
-
-    .backdrop {
-        position: fixed;
-        inset: 0;
-        z-index: 0;
-        background: #ea580c;
-        opacity: 0;
-        transition: opacity 0.5s cubic-bezier(0.32, 0.72, 0, 1);
-    }
-    .backdrop.show {
-        opacity: 1;
-    }
-
     .wrapper {
-        position: relative;
-        z-index: 1;
         background: #f9fafb;
         min-height: 100vh;
-        transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
     }
-    /* promote: keep a compositor layer alive before the scale animates. */
-    .wrapper.promote {
-        will-change: transform;
-        transform: translateZ(0);
-    }
-    /* open rules come AFTER .promote so they win at equal specificity. */
-    .wrapper.open,
-    .wrapper.open.promote {
-        transform: scale(0.9)
-            translate3d(0, calc(env(safe-area-inset-top) + 14px), 0);
-    }
-
     .page {
-        padding: 160px 20px 40px;
+        padding: 180px 20px 40px;
         color: #111;
-        font: 15px/1.6 system-ui, sans-serif;
+        font: 15px/1.7 system-ui, sans-serif;
     }
     .page h1 {
         font-size: 22px;
     }
-
-    .sheet {
-        position: fixed;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 10;
+    :global(.panel) {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 16px 20px calc(env(safe-area-inset-bottom) + 28px);
         background: #fff;
         border-radius: 12px 12px 0 0;
-        padding: 12px 20px calc(env(safe-area-inset-bottom) + 24px);
-        box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.2);
-        transform: translateY(100%);
-        transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
-        font: 15px/1.5 system-ui, sans-serif;
         color: #111;
+        font: 15px/1.5 system-ui, sans-serif;
     }
-    .sheet.open {
-        transform: translateY(0);
+    .open {
+        margin-top: 12px;
+        background: #ea580c;
+        color: #fff;
+        border: 0;
+        border-radius: 8px;
+        padding: 12px 18px;
+        font: 600 15px system-ui;
     }
     .grab {
         width: 40px;
         height: 5px;
         border-radius: 3px;
         background: #d1d5db;
-        margin: 0 auto 12px;
+        margin: 4px auto;
     }
-    .sheet button {
-        margin-top: 12px;
+    .close {
+        align-self: flex-start;
         background: #111;
         color: #fff;
         border: 0;
         border-radius: 8px;
-        padding: 10px 20px;
+        padding: 10px 18px;
         font: inherit;
     }
 </style>
