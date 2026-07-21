@@ -27,10 +27,12 @@
 </svelte:head>
 
 <div data-svaul-drawer-wrapper class="min-h-screen bg-gray-50">
-    <!-- Intro — fills the viewport; examples live below the fold. dvh tracks the
-         *dynamic* viewport so the mobile URL bar doesn't cover the bottom hint. -->
+    <!-- Intro — fills the viewport; examples live below the fold. svh is a *fixed*
+         viewport reference (sized as if the URL bar is always visible), so it never
+         re-resolves as the mobile URL bar slides in/out — which with dvh reflowed
+         the hero mid-scroll and jumped the examples below it up and down. -->
     <section
-        class="relative mx-auto flex min-h-dvh max-w-2xl flex-col items-center justify-center px-6 text-center"
+        class="relative mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center px-6 text-center"
     >
         <div class="group relative inline-block">
             <!-- Drawer logo: hidden in an overflow clip above the title, slides up
@@ -79,16 +81,11 @@
             class="absolute inset-x-0 bottom-8 flex flex-col items-center gap-1 text-sm text-gray-400"
         >
             <p>
-                v1 ported
+                Inspired by
                 <a
                     class="underline hover:text-gray-600"
                     href="https://vaul.emilkowal.ski">vaul</a
-                >
-                and
-                <a
-                    class="underline hover:text-gray-600"
-                    href="https://vaul-svelte.com">vaul-svelte</a
-                >; v2 is a ground-up rebuild.
+                > ♥
             </p>
             <p class="flex items-center gap-1 font-medium text-gray-500">
                 Scroll to view examples <span aria-hidden="true">↓</span>
